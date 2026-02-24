@@ -6,7 +6,7 @@ import {
 } from '@backstage/backend-plugin-api';
 import { Expand } from '@backstage/types';
 import {
-  createOpenChoreoLegacyApiClient,
+  createOpenChoreoApiClient,
   createObservabilityClientWithUrl,
 } from '@openchoreo/openchoreo-client-node';
 import { ComponentMetricsTimeSeries, Environment } from '../types';
@@ -88,7 +88,7 @@ export class ObservabilityService {
       throw new Error('Environment is required to resolve observer URL');
     }
 
-    const mainClient = createOpenChoreoLegacyApiClient({
+    const mainClient = createOpenChoreoApiClient({
       baseUrl: this.baseUrl,
       token: userToken,
       logger: this.logger,
@@ -99,7 +99,7 @@ export class ObservabilityService {
       error: urlError,
       response: urlResponse,
     } = await mainClient.GET(
-      '/namespaces/{namespaceName}/environments/{envName}/observer-url',
+      '/api/v1/namespaces/{namespaceName}/environments/{envName}/observer-url',
       {
         params: {
           path: {
@@ -116,13 +116,7 @@ export class ObservabilityService {
       );
     }
 
-    if (!urlData?.success || !urlData?.data) {
-      throw new Error(
-        `API returned unsuccessful response: ${JSON.stringify(urlData)}`,
-      );
-    }
-
-    const observerUrl = urlData.data.observerUrl;
+    const observerUrl = urlData?.observerUrl;
     if (!observerUrl) {
       throw new ObservabilityNotConfiguredError(namespaceName);
     }
@@ -150,14 +144,14 @@ export class ObservabilityService {
         `Starting environment fetch for namespace: ${namespaceName}`,
       );
 
-      const client = createOpenChoreoLegacyApiClient({
+      const client = createOpenChoreoApiClient({
         baseUrl: this.baseUrl,
         logger: this.logger,
         token: userToken,
       });
 
       const { data, error, response } = await client.GET(
-        '/namespaces/{namespaceName}/environments',
+        '/api/v1/namespaces/{namespaceName}/environments',
         {
           params: {
             path: { namespaceName },
@@ -172,14 +166,21 @@ export class ObservabilityService {
         return [];
       }
 
-      if (!data.success || !data.data?.items) {
+      if (!data?.items) {
         this.logger.warn(
           `No environments found for namespace ${namespaceName}`,
         );
         return [];
       }
 
-      const environments = data.data.items as Environment[];
+      const environments: Environment[] = data.items.map((item: any) => ({
+        uid: item.metadata?.uid ?? '',
+        name: item.metadata?.name ?? '',
+        namespace: item.metadata?.namespace ?? '',
+        isProduction: item.spec?.isProduction ?? false,
+        dataPlaneRef: item.spec?.dataPlaneRef,
+        createdAt: item.metadata?.creationTimestamp ?? '',
+      }));
 
       const totalTime = Date.now() - startTime;
       this.logger.debug(
@@ -388,48 +389,14 @@ export class ObservabilityService {
         `Fetching metrics for component ${componentName} in environment ${environmentName}`,
       );
 
-      // First, get the observer URL from the main API
-      const mainClient = createOpenChoreoLegacyApiClient({
-        baseUrl: this.baseUrl,
-        token: userToken,
-        logger: this.logger,
-      });
-      const {
-        data: urlData,
-        error: urlError,
-        response: urlResponse,
-      } = await mainClient.GET(
-        '/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/environments/{environmentName}/observer-url',
-        {
-          params: {
-            path: {
-              namespaceName,
-              projectName,
-              componentName,
-              environmentName,
-            },
-          },
-        },
+      // Resolve the observer URL using the helper function
+      const observerUrl = await this.resolveObserverUrl(
+        namespaceName,
+        environmentName,
+        userToken,
       );
 
-      if (urlError || !urlResponse.ok) {
-        throw new Error(
-          `Failed to get observer URL: ${urlResponse.status} ${urlResponse.statusText}`,
-        );
-      }
-
-      if (!urlData.success || !urlData.data) {
-        throw new Error(
-          `API returned unsuccessful response: ${JSON.stringify(urlData)}`,
-        );
-      }
-
-      const observerUrl = urlData.data.observerUrl;
-      if (!observerUrl) {
-        throw new ObservabilityNotConfiguredError(componentName);
-      }
-
-      // Now use the observability client with the resolved URL
+      // Use the observability client with the resolved URL
       const obsClient = createObservabilityClientWithUrl(
         observerUrl,
         userToken,

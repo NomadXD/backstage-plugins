@@ -114,6 +114,12 @@ export const createComponentWorkflowDefinitionAction = (
       });
 
       try {
+        ctx.logger.debug(
+          `Sending ComponentWorkflow creation request to namespace '${namespaceName}': ${JSON.stringify(
+            resourceObj,
+          )}`,
+        );
+
         const { data, error, response } = await client.POST(
           '/namespaces/{namespaceName}/component-workflows/definition',
           {
@@ -125,9 +131,10 @@ export const createComponentWorkflowDefinitionAction = (
         );
 
         if (error || !response.ok) {
-          throw new Error(
-            `Failed to create ComponentWorkflow: ${response.status} ${response.statusText}`,
-          );
+          const errorDetail = error
+            ? JSON.stringify(error)
+            : `${response.status} ${response.statusText}`;
+          throw new Error(`Failed to create ComponentWorkflow: ${errorDetail}`);
         }
 
         if (!data?.success || !data?.data) {
@@ -192,7 +199,9 @@ export const createComponentWorkflowDefinitionAction = (
         );
       } catch (err) {
         ctx.logger.error(`Error creating ComponentWorkflow: ${err}`);
-        throw new Error(`Failed to create ComponentWorkflow: ${err}`);
+        throw err instanceof Error
+          ? err
+          : new Error(`Failed to create ComponentWorkflow: ${err}`);
       }
     },
   });

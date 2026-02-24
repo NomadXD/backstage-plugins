@@ -648,17 +648,20 @@ export async function createRouter({
 
     const userToken = getUserTokenFromRequest(req);
 
-    res.json(
-      await environmentInfoService.fetchComponentReleaseSchema(
-        {
-          componentName: componentName as string,
-          projectName: projectName as string,
-          namespaceName: namespaceName as string,
-          releaseName: releaseName as string,
-        },
-        userToken,
-      ),
+    const schema = await environmentInfoService.fetchComponentReleaseSchema(
+      {
+        componentName: componentName as string,
+        projectName: projectName as string,
+        namespaceName: namespaceName as string,
+        releaseName: releaseName as string,
+      },
+      userToken,
     );
+    res.json({
+      success: true,
+      data: schema,
+      message: 'Schema fetched successfully',
+    });
   });
 
   router.get('/release-bindings', async (req, res) => {
@@ -672,16 +675,15 @@ export async function createRouter({
 
     const userToken = getUserTokenFromRequest(req);
 
-    res.json(
-      await environmentInfoService.fetchReleaseBindings(
-        {
-          componentName: componentName as string,
-          projectName: projectName as string,
-          namespaceName: namespaceName as string,
-        },
-        userToken,
-      ),
+    const bindings = await environmentInfoService.fetchReleaseBindings(
+      {
+        componentName: componentName as string,
+        projectName: projectName as string,
+        namespaceName: namespaceName as string,
+      },
+      userToken,
     );
+    res.json({ success: true, data: bindings });
   });
 
   router.patch('/patch-release-binding', requireAuth, async (req, res) => {
@@ -1476,7 +1478,7 @@ export async function createRouter({
     }
 
     const validKinds = [
-      'component-types',
+      'componenttypes',
       'traits',
       'workflows',
       'component-workflows',
@@ -1495,7 +1497,7 @@ export async function createRouter({
     res.json(
       await platformResourceService.getResourceDefinition(
         kind as
-          | 'component-types'
+          | 'componenttypes'
           | 'traits'
           | 'workflows'
           | 'component-workflows'
@@ -1523,7 +1525,7 @@ export async function createRouter({
     }
 
     const validKinds = [
-      'component-types',
+      'componenttypes',
       'traits',
       'workflows',
       'component-workflows',
@@ -1546,7 +1548,7 @@ export async function createRouter({
     res.json(
       await platformResourceService.updateResourceDefinition(
         kind as
-          | 'component-types'
+          | 'componenttypes'
           | 'traits'
           | 'workflows'
           | 'component-workflows'
@@ -1577,7 +1579,7 @@ export async function createRouter({
       }
 
       const validKinds = [
-        'component-types',
+        'componenttypes',
         'traits',
         'workflows',
         'component-workflows',
@@ -1596,7 +1598,7 @@ export async function createRouter({
       res.json(
         await platformResourceService.deleteResourceDefinition(
           kind as
-            | 'component-types'
+            | 'componenttypes'
             | 'traits'
             | 'workflows'
             | 'component-workflows'

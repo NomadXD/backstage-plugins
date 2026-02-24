@@ -8,19 +8,18 @@ import {
 } from '@wso2/cell-diagram';
 import { CellDiagramService } from '../../types';
 import {
-  createOpenChoreoLegacyApiClient,
   createOpenChoreoApiClient,
   fetchAllPages,
-  type OpenChoreoLegacyComponents,
 } from '@openchoreo/openchoreo-client-node';
-import { ComponentTypeUtils } from '@openchoreo/backstage-plugin-common';
+import {
+  ComponentTypeUtils,
+  type ComponentResponse,
+  type Connection,
+  type WorkloadEndpoint,
+} from '@openchoreo/backstage-plugin-common';
 
-// Use generated type from OpenAPI spec
-type ModelsCompleteComponent =
-  OpenChoreoLegacyComponents['schemas']['ComponentResponse'];
-type WorkloadConnection = OpenChoreoLegacyComponents['schemas']['Connection'];
-type WorkloadEndpoint =
-  OpenChoreoLegacyComponents['schemas']['WorkloadEndpoint'];
+type ModelsCompleteComponent = ComponentResponse;
+type WorkloadConnection = Connection;
 
 enum ComponentType {
   SERVICE = 'service',
@@ -51,127 +50,13 @@ export class CellDiagramInfoService implements CellDiagramService {
   private readonly logger: LoggerService;
   private readonly baseUrl: string;
   private readonly componentTypeUtils: ComponentTypeUtils;
-  private readonly useNewApi: boolean;
-
-  public constructor(
-    logger: LoggerService,
-    baseUrl: string,
-    config: Config,
-    useNewApi = false,
-  ) {
+  public constructor(logger: LoggerService, baseUrl: string, config: Config) {
     this.baseUrl = baseUrl;
     this.logger = logger;
     this.componentTypeUtils = ComponentTypeUtils.fromConfig(config);
-    this.useNewApi = useNewApi;
   }
 
   async fetchProjectInfo(
-    {
-      projectName,
-      namespaceName,
-    }: {
-      projectName: string;
-      namespaceName: string;
-    },
-    token?: string,
-  ): Promise<Project | undefined> {
-    if (this.useNewApi) {
-      return this.fetchProjectInfoNew({ projectName, namespaceName }, token);
-    }
-    return this.fetchProjectInfoLegacy({ projectName, namespaceName }, token);
-  }
-
-  private async fetchProjectInfoLegacy(
-    {
-      projectName,
-      namespaceName,
-    }: {
-      projectName: string;
-      namespaceName: string;
-    },
-    token?: string,
-  ): Promise<Project | undefined> {
-    try {
-      const client = createOpenChoreoLegacyApiClient({
-        baseUrl: this.baseUrl,
-        token,
-        logger: this.logger,
-      });
-
-      const {
-        data: componentsListData,
-        error: listError,
-        response: listResponse,
-      } = await client.GET(
-        '/namespaces/{namespaceName}/projects/{projectName}/components',
-        {
-          params: {
-            path: { namespaceName, projectName },
-          },
-        },
-      );
-
-      if (listError || !listResponse.ok) {
-        this.logger.error(
-          `Failed to fetch components for project ${projectName}`,
-        );
-        return undefined;
-      }
-
-      if (!componentsListData.success || !componentsListData.data?.items) {
-        this.logger.warn('No components found in API response');
-        return undefined;
-      }
-
-      const completeComponents: ModelsCompleteComponent[] = [];
-
-      for (const component of componentsListData.data.items) {
-        const componentName = (component as { name?: string }).name;
-        if (!componentName) continue;
-
-        try {
-          const {
-            data: componentData,
-            error: componentError,
-            response: componentResponse,
-          } = await client.GET(
-            '/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}',
-            {
-              params: {
-                path: {
-                  namespaceName,
-                  projectName,
-                  componentName,
-                },
-                query: {
-                  include: 'type,workload',
-                },
-              },
-            },
-          );
-
-          if (!componentError && componentResponse.ok) {
-            if (componentData.success && componentData.data) {
-              completeComponents.push(componentData.data);
-            }
-          }
-        } catch (error) {
-          this.logger.warn(
-            `Failed to fetch component ${component.name}: ${error}`,
-          );
-        }
-      }
-
-      return this.buildProject(projectName, namespaceName, completeComponents);
-    } catch (error: unknown) {
-      this.logger.error(
-        `Error fetching project info for ${projectName}: ${error}`,
-      );
-      return undefined;
-    }
-  }
-
-  private async fetchProjectInfoNew(
     {
       projectName,
       namespaceName,
@@ -245,8 +130,11 @@ export class CellDiagramInfoService implements CellDiagramService {
       const completeComponents: ModelsCompleteComponent[] = componentItems
         .map(comp => {
           const name = comp.metadata?.name ?? '';
+          const componentTypeRef = comp.spec?.componentType;
           const componentType =
-            comp.spec?.type ?? comp.spec?.componentType ?? '';
+            typeof componentTypeRef === 'string'
+              ? componentTypeRef
+              : componentTypeRef?.name ?? '';
           const workloadSpec = workloadMap.get(name);
 
           return {
