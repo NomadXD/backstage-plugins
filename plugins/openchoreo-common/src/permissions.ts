@@ -312,8 +312,8 @@ export const OPENCHOREO_PERMISSION_TO_ACTION: Record<string, string> = {
   'openchoreo.component.create': 'component:create',
   'openchoreo.component.read': 'component:view',
   'openchoreo.component.update': 'component:update',
-  'openchoreo.component.build': 'componentworkflow:create',
-  'openchoreo.component.viewbuilds': 'componentworkflow:view',
+  'openchoreo.component.build': 'workflowrun:create',
+  'openchoreo.component.viewbuilds': 'workflowrun:view',
   'openchoreo.component.deploy': 'component:deploy',
   'openchoreo.project.create': 'project:create',
   'openchoreo.project.read': 'project:view',
@@ -336,7 +336,7 @@ export const OPENCHOREO_PERMISSION_TO_ACTION: Record<string, string> = {
   'openchoreo.traits.view': 'trait:view',
   'openchoreo.trait.create': 'trait:create',
   'openchoreo.componenttype.create': 'componenttype:create',
-  'openchoreo.componentworkflow.create': 'componentworkflow:create',
+  'openchoreo.componentworkflow.create': 'workflow:create',
 };
 
 /**

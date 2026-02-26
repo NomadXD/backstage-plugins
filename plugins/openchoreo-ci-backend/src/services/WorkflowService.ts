@@ -3,6 +3,7 @@ import {
   createOpenChoreoApiClient,
   createOpenChoreoLegacyApiClient,
   createObservabilityClientWithUrl,
+  fetchAllPages,
 } from '@openchoreo/openchoreo-client-node';
 import type {
   ComponentWorkflowRunResponse,
@@ -18,6 +19,77 @@ import {
 type ModelsBuild = ComponentWorkflowRunResponse;
 
 type WorkflowRunStatusResponse = ComponentWorkflowRunStatusResponse;
+
+/**
+ * Derive a string status from a raw K8s WorkflowRun.
+ *
+ * completedAt is treated as the strongest signal: if set, the run is
+ * definitively done and we never return an in-progress status, even if
+ * the K8s conditions are stale (e.g. controller hasn't reconciled yet).
+ */
+function deriveWorkflowRunStatus(run: any): string {
+  const readyCondition = (run.status?.conditions ?? []).find(
+    (c: any) => c.type === 'Ready',
+  );
+  const tasks = (run.status?.tasks ?? []) as any[];
+
+  // completedAt is the strongest completion signal — takes priority
+  if (run.status?.completedAt) {
+    if (tasks.some((t: any) => t.phase === 'Failed' || t.phase === 'Error')) {
+      return 'Failed';
+    }
+    const reason = readyCondition?.reason;
+    if (reason && reason !== 'Running' && reason !== 'Pending') {
+      return reason;
+    }
+    return 'Succeeded';
+  }
+
+  // Trust the Ready condition when the run has not yet completed
+  if (readyCondition) {
+    return (
+      readyCondition.reason ||
+      (readyCondition.status === 'True' ? 'Succeeded' : 'Running')
+    );
+  }
+
+  // No conditions — fall back to tasks then timing
+  if (tasks.some((t: any) => t.phase === 'Failed' || t.phase === 'Error')) {
+    return 'Failed';
+  }
+  if (tasks.every((t: any) => t.phase === 'Succeeded') && tasks.length > 0) {
+    return 'Succeeded';
+  }
+  if (tasks.some((t: any) => t.phase === 'Running')) {
+    return 'Running';
+  }
+  if (run.status?.startedAt) return 'Running';
+  return 'Pending';
+}
+
+/** Transform a raw K8s-style WorkflowRun object into the flat ModelsBuild shape. */
+function transformWorkflowRun(run: any): ModelsBuild {
+  const labels = run.metadata?.labels ?? {};
+  const annotations = run.metadata?.annotations ?? {};
+  const status = deriveWorkflowRunStatus(run);
+  return {
+    name: run.metadata?.name ?? '',
+    uuid: run.metadata?.uid ?? '',
+    componentName: labels['openchoreo.dev/component'] ?? '',
+    projectName: labels['openchoreo.dev/project'] ?? '',
+    namespaceName: run.metadata?.namespace ?? '',
+    status,
+    commit: annotations['openchoreo.dev/commit'],
+    image: annotations['openchoreo.dev/image'],
+    createdAt: run.metadata?.creationTimestamp,
+    workflow: run.spec?.workflow
+      ? {
+          name: run.spec.workflow.name,
+          parameters: run.spec.workflow.parameters as Record<string, unknown>,
+        }
+      : undefined,
+  };
+}
 
 export class ObservabilityNotConfiguredError extends Error {
   constructor(componentName: string) {
@@ -58,22 +130,31 @@ export class WorkflowService {
         logger: this.logger,
       });
 
-      const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/workflow-runs',
-        {
-          params: {
-            path: { namespaceName, projectName, componentName },
-          },
-        },
+      const allRuns = await fetchAllPages(cursor =>
+        client
+          .GET('/api/v1/namespaces/{namespaceName}/workflowruns', {
+            params: {
+              path: { namespaceName },
+              query: { limit: 100, cursor },
+            },
+          })
+          .then(res => {
+            if (res.error || !res.response.ok) {
+              throw new Error(
+                `Failed to fetch component workflow runs: ${res.response.status} ${res.response.statusText}`,
+              );
+            }
+            return res.data;
+          }),
       );
-
-      if (error || !response.ok) {
-        throw new Error(
-          `Failed to fetch component workflow runs: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      const builds = (data?.items || []) as any;
+      // Filter by component label and transform to flat response shape
+      const builds = allRuns
+        .filter(
+          (run: any) =>
+            run.metadata?.labels?.['openchoreo.dev/component'] ===
+            componentName,
+        )
+        .map(transformWorkflowRun);
 
       this.logger.debug(
         `Successfully fetched ${builds.length} component workflow runs for component: ${componentName}`,
@@ -106,10 +187,10 @@ export class WorkflowService {
       });
 
       const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/workflow-runs/{runName}',
+        '/api/v1/namespaces/{namespaceName}/workflowruns/{runName}',
         {
           params: {
-            path: { namespaceName, projectName, componentName, runName },
+            path: { namespaceName, runName },
           },
         },
       );
@@ -124,8 +205,18 @@ export class WorkflowService {
         throw new Error('No workflow run data returned');
       }
 
+      const runLabels = (data as any).metadata?.labels ?? {};
+      if (
+        runLabels['openchoreo.dev/component'] !== componentName ||
+        runLabels['openchoreo.dev/project'] !== projectName
+      ) {
+        throw new Error(
+          `Workflow run ${runName} does not belong to component ${componentName} in project ${projectName}`,
+        );
+      }
+
       this.logger.debug(`Successfully fetched workflow run: ${runName}`);
-      return data;
+      return transformWorkflowRun(data);
     } catch (error) {
       this.logger.error(
         `Failed to fetch workflow run ${runName} for component ${componentName}: ${error}`,
@@ -153,7 +244,7 @@ export class WorkflowService {
       });
 
       const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/workflow-runs/{runName}/status',
+        '/api/v1/namespaces/{namespaceName}/workflowruns/{runName}/status',
         {
           params: {
             path: { namespaceName, runName },
@@ -201,13 +292,51 @@ export class WorkflowService {
         logger: this.logger,
       });
 
-      const { data, error, response } = await client.POST(
-        '/api/v1/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/workflow-runs',
+      // Fetch component to get its configured workflow name
+      const { data: compData, error: compError } = await client.GET(
+        '/api/v1/namespaces/{namespaceName}/components/{componentName}',
         {
-          params: {
-            path: { namespaceName, projectName, componentName },
-            query: commit ? { commit } : undefined,
-          },
+          params: { path: { namespaceName, componentName } },
+        },
+      );
+
+      if (compError || !compData) {
+        throw new Error(
+          `Failed to fetch component ${componentName} to determine workflow name`,
+        );
+      }
+
+      const workflowName = (compData as any)?.spec?.workflow?.name;
+      if (!workflowName) {
+        throw new Error(
+          `Component ${componentName} has no workflow configured`,
+        );
+      }
+
+      const parameters: Record<string, unknown> = {};
+      if (commit) {
+        parameters.commit = commit;
+      }
+
+      const { data, error, response } = await client.POST(
+        '/api/v1/namespaces/{namespaceName}/workflowruns',
+        {
+          params: { path: { namespaceName } },
+          body: {
+            metadata: {
+              name: `${componentName}-${Date.now()}`,
+              labels: {
+                'openchoreo.dev/component': componentName,
+                'openchoreo.dev/project': projectName,
+              },
+            },
+            spec: {
+              workflow: {
+                name: workflowName,
+                parameters: parameters as any,
+              },
+            },
+          } as any,
         },
       );
 
@@ -223,10 +352,10 @@ export class WorkflowService {
 
       this.logger.debug(
         `Successfully triggered component workflow for component: ${componentName}, workflow run name: ${
-          (data as any).name
+          (data as any).metadata?.name
         }`,
       );
-      return data as any;
+      return transformWorkflowRun(data);
     } catch (error) {
       this.logger.error(
         `Failed to trigger component workflow for component ${componentName}: ${error}`,
@@ -384,7 +513,7 @@ export class WorkflowService {
         });
 
         const { data, error, response } = await client.GET(
-          '/api/v1/namespaces/{namespaceName}/workflow-runs/{runName}/logs',
+          '/api/v1/namespaces/{namespaceName}/workflowruns/{runName}/logs',
           {
             params: {
               path: { namespaceName, runName },
@@ -555,7 +684,7 @@ export class WorkflowService {
         });
 
         const { data, error, response } = await client.GET(
-          '/api/v1/namespaces/{namespaceName}/workflow-runs/{runName}/events',
+          '/api/v1/namespaces/{namespaceName}/workflowruns/{runName}/events',
           {
             params: {
               path: { namespaceName, runName },
@@ -720,7 +849,7 @@ export class WorkflowService {
       });
 
       const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/component-workflows',
+        '/api/v1/namespaces/{namespaceName}/workflows',
         {
           params: {
             path: { namespaceName },
@@ -734,10 +863,18 @@ export class WorkflowService {
         );
       }
 
-      const items = (data?.items || []) as WorkflowResponse[];
+      // Map K8s-style Workflow to flat WorkflowResponse
+      const items: WorkflowResponse[] = (data?.items || []).map((wf: any) => ({
+        name: wf.metadata?.name ?? '',
+        displayName:
+          wf.metadata?.annotations?.['openchoreo.dev/display-name'] ??
+          wf.metadata?.name,
+        description: wf.metadata?.annotations?.['openchoreo.dev/description'],
+        createdAt: wf.metadata?.creationTimestamp,
+      }));
 
       this.logger.debug(
-        `Successfully fetched ${items.length} component workflows for namespace: ${namespaceName}`,
+        `Successfully fetched ${items.length} workflows for namespace: ${namespaceName}`,
       );
       return { items };
     } catch (error) {
@@ -768,10 +905,10 @@ export class WorkflowService {
       });
 
       const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/component-workflows/{cwName}/schema',
+        '/api/v1/namespaces/{namespaceName}/workflows/{workflowName}/schema',
         {
           params: {
-            path: { namespaceName, cwName: workflowName },
+            path: { namespaceName, workflowName },
           },
         },
       );
@@ -796,54 +933,19 @@ export class WorkflowService {
 
   /**
    * Update component workflow parameters
+   * @deprecated The workflow-parameters endpoint was removed in OpenChoreo API v0.7.
+   * Workflow parameters are now managed through the component's workflow configuration.
    */
   async updateComponentWorkflowParameters(
-    namespaceName: string,
-    projectName: string,
+    _namespaceName: string,
+    _projectName: string,
     componentName: string,
-    systemParameters: { [key: string]: unknown },
-    parameters?: { [key: string]: unknown },
-    token?: string,
+    _systemParameters: { [key: string]: unknown },
+    _parameters?: { [key: string]: unknown },
+    _token?: string,
   ): Promise<unknown> {
-    this.logger.debug(
-      `Updating workflow parameters for component: ${componentName} in project: ${projectName}, namespace: ${namespaceName}`,
+    throw new Error(
+      `updateComponentWorkflowParameters is no longer supported. The workflow-parameters API was removed in OpenChoreo v0.7. Component workflow parameters for '${componentName}' must be managed through the component configuration.`,
     );
-
-    try {
-      const client = createOpenChoreoApiClient({
-        baseUrl: this.baseUrl,
-        token,
-        logger: this.logger,
-      });
-
-      const { data, error, response } = await client.PATCH(
-        '/api/v1/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/workflow-parameters',
-        {
-          params: {
-            path: { namespaceName, projectName, componentName },
-          },
-          body: {
-            systemParameters: systemParameters as any,
-            parameters: parameters as any,
-          },
-        },
-      );
-
-      if (error || !response.ok) {
-        throw new Error(
-          `Failed to update workflow parameters: ${response.status} ${response.statusText}`,
-        );
-      }
-
-      this.logger.debug(
-        `Successfully updated workflow parameters for component: ${componentName}`,
-      );
-      return data;
-    } catch (error) {
-      this.logger.error(
-        `Failed to update workflow parameters for component ${componentName}: ${error}`,
-      );
-      throw error;
-    }
   }
 }

@@ -229,7 +229,7 @@ export interface WorkflowResponse {
   displayName?: string;
   description?: string;
   /** Format: date-time */
-  createdAt: string;
+  createdAt?: string;
 }
 
 export interface ComponentWorkflowRunResponse {
@@ -241,7 +241,7 @@ export interface ComponentWorkflowRunResponse {
   commit?: string;
   status?: string;
   /** Format: date-time */
-  createdAt: string;
+  createdAt?: string;
   image?: string;
   workflow?: ComponentWorkflowConfigResponse;
 }

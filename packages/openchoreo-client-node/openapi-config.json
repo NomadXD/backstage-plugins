@@ -24,7 +24,7 @@
   ],
   "versionField": "openChoreoVersion",
   "versionFile": "src/version.ts",
-  "lastSyncCommit": "69f42d25bd8b05dd59b43532fcff9b3b48a7a3c6",
-  "lastSyncDate": "2026-02-20T10:20:43+05:30",
-  "lastSyncDescription": "Changed allowedTraits from string[] to AllowedTraitResponse[] (object with kind and name fields)"
+  "lastSyncCommit": "36e28720",
+  "lastSyncDate": "2026-02-26T00:00:00+05:30",
+  "lastSyncDescription": "feat: add workflow and workflow run apis (#2242) - Workflow schema changed to K8s-style (metadata: ObjectMeta), component-workflows endpoint removed, workflow-runs renamed to workflowruns"
 }

@@ -28,7 +28,7 @@ export class BuildInfoService {
 
   async fetchBuilds(
     namespaceName: string,
-    projectName: string,
+    _projectName: string,
     componentName: string,
     token?: string,
   ): Promise<ModelsBuild[]> {
@@ -43,22 +43,14 @@ export class BuildInfoService {
         logger: this.logger,
       });
 
-      // Use the component-scoped workflow-runs endpoint
       const items = await fetchAllPages(cursor =>
         client
-          .GET(
-            '/api/v1/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/workflow-runs',
-            {
-              params: {
-                path: {
-                  namespaceName,
-                  projectName,
-                  componentName,
-                },
-                query: { limit: 100, cursor },
-              },
+          .GET('/api/v1/namespaces/{namespaceName}/workflowruns', {
+            params: {
+              path: { namespaceName },
+              query: { limit: 100, cursor },
             },
-          )
+          })
           .then(res => {
             if (res.error || !res.response.ok) {
               throw new Error(
@@ -69,7 +61,14 @@ export class BuildInfoService {
           }),
       );
 
-      const builds = items.map(transformComponentWorkflowRun);
+      // Filter by component label and transform
+      const builds = items
+        .filter(
+          (run: any) =>
+            run.metadata?.labels?.['openchoreo.dev/component'] ===
+            componentName,
+        )
+        .map(transformComponentWorkflowRun);
 
       this.logger.debug(
         `Successfully fetched ${builds.length} component workflow runs for component: ${componentName}`,
@@ -102,10 +101,10 @@ export class BuildInfoService {
       });
 
       const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/workflow-runs/{runName}',
+        '/api/v1/namespaces/{namespaceName}/workflowruns/{runName}',
         {
           params: {
-            path: { namespaceName, projectName, componentName, runName },
+            path: { namespaceName, runName },
           },
         },
       );
@@ -113,6 +112,16 @@ export class BuildInfoService {
       if (error || !response.ok) {
         throw new Error(
           `Failed to fetch workflow run: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const runLabels = (data as any)?.metadata?.labels ?? {};
+      if (
+        runLabels['openchoreo.dev/component'] !== componentName ||
+        runLabels['openchoreo.dev/project'] !== projectName
+      ) {
+        throw new Error(
+          `Workflow run ${runName} does not belong to component ${componentName} in project ${projectName}`,
         );
       }
 
@@ -144,13 +153,40 @@ export class BuildInfoService {
         logger: this.logger,
       });
 
+      // Fetch component to resolve its configured workflow name
+      const { data: compData, error: compError } = await client.GET(
+        '/api/v1/namespaces/{namespaceName}/components/{componentName}',
+        { params: { path: { namespaceName, componentName } } },
+      );
+      if (compError || !compData) {
+        throw new Error(
+          `Failed to fetch component ${componentName} to determine workflow name`,
+        );
+      }
+      const workflowName = (compData as any)?.spec?.workflow?.name;
+      if (!workflowName) {
+        throw new Error(
+          `Component ${componentName} has no workflow configured`,
+        );
+      }
+
+      const parameters: Record<string, unknown> = {};
+      if (commit) parameters.commit = commit;
+
       const { data, error, response } = await client.POST(
-        '/api/v1/namespaces/{namespaceName}/projects/{projectName}/components/{componentName}/workflow-runs',
+        '/api/v1/namespaces/{namespaceName}/workflowruns',
         {
-          params: {
-            path: { namespaceName, projectName, componentName },
-            query: commit ? { commit } : undefined,
-          },
+          params: { path: { namespaceName } },
+          body: {
+            metadata: {
+              name: `${componentName}-${Date.now()}`,
+              labels: {
+                'openchoreo.dev/component': componentName,
+                'openchoreo.dev/project': projectName,
+              },
+            },
+            spec: { workflow: { name: workflowName, parameters } },
+          } as any,
         },
       );
 

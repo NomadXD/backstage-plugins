@@ -12,6 +12,69 @@ import {
 } from '../types';
 
 /**
+ * Derive a string status from a raw K8s-style WorkflowRun object.
+ *
+ * completedAt is treated as the strongest signal: if set, the run is
+ * definitively done and we never return an in-progress status, even if
+ * the K8s conditions are stale (e.g. controller hasn't reconciled yet).
+ */
+function deriveWorkflowRunStatus(run: any): string {
+  const conditions = (run.status?.conditions ?? []) as any[];
+  const readyCondition = conditions.find(c => c.type === 'Ready');
+  const tasks = (run.status?.tasks ?? []) as any[];
+
+  // completedAt is the strongest completion signal — takes priority
+  if (run.status?.completedAt) {
+    if (tasks.some((t: any) => t.phase === 'Failed' || t.phase === 'Error')) {
+      return 'Failed';
+    }
+    // Use condition reason only if it is a terminal (non-in-progress) state
+    const reason = readyCondition?.reason;
+    if (reason && reason !== 'Running' && reason !== 'Pending') {
+      return reason;
+    }
+    return 'Succeeded';
+  }
+
+  // Trust the Ready condition when the run has not yet completed
+  if (readyCondition) {
+    return (
+      readyCondition.reason ||
+      (readyCondition.status === 'True' ? 'Succeeded' : 'Running')
+    );
+  }
+
+  // No conditions — fall back to tasks then timing
+  if (tasks.some((t: any) => t.phase === 'Failed' || t.phase === 'Error')) {
+    return 'Failed';
+  }
+  if (tasks.every((t: any) => t.phase === 'Succeeded') && tasks.length > 0) {
+    return 'Succeeded';
+  }
+  if (tasks.some((t: any) => t.phase === 'Running')) {
+    return 'Running';
+  }
+  if (run.status?.startedAt) return 'Running';
+  return 'Pending';
+}
+
+/**
+ * Transform a raw K8s WorkflowRun object into the local flat WorkflowRun shape.
+ */
+function transformWorkflowRun(run: any): import('../types').WorkflowRun {
+  return {
+    name: run.metadata?.name ?? '',
+    uuid: run.metadata?.uid,
+    workflowName: run.spec?.workflow?.name ?? '',
+    namespaceName: run.metadata?.namespace ?? '',
+    status: deriveWorkflowRunStatus(run),
+    parameters: run.spec?.workflow?.parameters,
+    createdAt: run.metadata?.creationTimestamp,
+    finishedAt: run.status?.completedAt,
+  };
+}
+
+/**
  * Error thrown when observability is not configured for workflow runs
  */
 export class ObservabilityNotConfiguredError extends Error {
@@ -72,7 +135,15 @@ export class GenericWorkflowService {
         );
       }
 
-      const items = (data?.items || []) as Workflow[];
+      // Map K8s-style Workflow to the local flat Workflow interface
+      const items: Workflow[] = ((data as any)?.items || []).map((wf: any) => ({
+        name: wf.metadata?.name ?? '',
+        displayName:
+          wf.metadata?.annotations?.['openchoreo.dev/display-name'] ??
+          wf.metadata?.name,
+        description: wf.metadata?.annotations?.['openchoreo.dev/description'],
+        createdAt: wf.metadata?.creationTimestamp,
+      }));
 
       this.logger.debug(
         `Successfully fetched ${items.length} generic workflows for namespace: ${namespaceName}`,
@@ -80,7 +151,9 @@ export class GenericWorkflowService {
 
       return {
         items,
-        pagination: data?.pagination as { nextCursor?: string } | undefined,
+        pagination: (data as any)?.pagination as
+          | { nextCursor?: string }
+          | undefined,
       };
     } catch (error) {
       this.logger.error(
@@ -159,7 +232,7 @@ export class GenericWorkflowService {
       });
 
       const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/workflow-runs',
+        '/api/v1/namespaces/{namespaceName}/workflowruns',
         {
           params: {
             path: { namespaceName },
@@ -173,13 +246,19 @@ export class GenericWorkflowService {
         );
       }
 
-      let items = (data?.items || []) as unknown as WorkflowRun[];
+      const rawItems = ((data as any)?.items || []) as any[];
 
-      // Filter by workflowName if provided (client-side filtering)
+      // Filter by workflowName before transforming (check both flat and K8s fields)
       // TODO: If upstream API supports filtering, pass workflowName as query param instead
-      if (workflowName) {
-        items = items.filter(run => run.workflowName === workflowName);
-      }
+      const filtered = workflowName
+        ? rawItems.filter(
+            run =>
+              run.spec?.workflow?.name === workflowName ||
+              run.workflowName === workflowName,
+          )
+        : rawItems;
+
+      const items: WorkflowRun[] = filtered.map(transformWorkflowRun);
 
       this.logger.debug(
         `Successfully fetched ${
@@ -191,7 +270,9 @@ export class GenericWorkflowService {
 
       return {
         items,
-        pagination: data?.pagination as { nextCursor?: string } | undefined,
+        pagination: (data as any)?.pagination as
+          | { nextCursor?: string }
+          | undefined,
       };
     } catch (error) {
       this.logger.error(
@@ -221,7 +302,7 @@ export class GenericWorkflowService {
       });
 
       const { data, error, response } = await client.GET(
-        '/api/v1/namespaces/{namespaceName}/workflow-runs/{runName}',
+        '/api/v1/namespaces/{namespaceName}/workflowruns/{runName}',
         {
           params: {
             path: { namespaceName, runName },
@@ -241,7 +322,7 @@ export class GenericWorkflowService {
 
       this.logger.debug(`Successfully fetched workflow run: ${runName}`);
 
-      return data as unknown as WorkflowRun;
+      return transformWorkflowRun(data);
     } catch (error) {
       this.logger.error(
         `Failed to fetch workflow run ${runName} in namespace ${namespaceName}: ${error}`,
@@ -270,14 +351,19 @@ export class GenericWorkflowService {
       });
 
       const { data, error, response } = await client.POST(
-        '/api/v1/namespaces/{namespaceName}/workflow-runs',
+        '/api/v1/namespaces/{namespaceName}/workflowruns',
         {
           params: {
             path: { namespaceName },
           },
           body: {
-            workflowName: request.workflowName,
-            parameters: request.parameters,
+            metadata: { name: `${request.workflowName}-${Date.now()}` },
+            spec: {
+              workflow: {
+                name: request.workflowName,
+                parameters: request.parameters,
+              },
+            },
           } as any,
         },
       );
@@ -293,10 +379,10 @@ export class GenericWorkflowService {
       }
 
       this.logger.debug(
-        `Successfully created workflow run: ${(data as any).name}`,
+        `Successfully created workflow run: ${(data as any).metadata?.name}`,
       );
 
-      return data as unknown as WorkflowRun;
+      return transformWorkflowRun(data);
     } catch (error) {
       this.logger.error(
         `Failed to create workflow run for workflow ${request.workflowName} in namespace ${namespaceName}: ${error}`,
@@ -332,7 +418,7 @@ export class GenericWorkflowService {
         token,
       );
       // Use run name for observability API (not UUID)
-      const runId = workflowRun.name || runName;
+      const runId = (workflowRun as any).metadata?.name || runName;
 
       // Get the observer URL from the environment
       const mainClient = createOpenChoreoApiClient({

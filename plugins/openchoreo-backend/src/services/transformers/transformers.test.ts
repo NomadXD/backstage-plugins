@@ -323,24 +323,25 @@ describe('transformObservabilityPlane', () => {
 // ---------------------------------------------------------------------------
 
 describe('transformComponentWorkflowRun', () => {
-  const run: OpenChoreoComponents['schemas']['ComponentWorkflowRun'] = {
-    name: 'run-001',
-    uuid: 'run-uid-001',
-    componentName: 'api-service',
-    projectName: 'my-project',
-    namespaceName: 'my-ns',
-    status: 'Succeeded',
-    commit: 'abc1234',
-    image: 'registry.example.com/api-service:abc1234',
-    createdAt: '2025-01-06T10:00:00Z',
-    workflow: {
-      name: 'docker-build',
-      systemParameters: {
-        repository: {
-          url: 'https://github.com/org/repo.git',
-          revision: { branch: 'main', commit: 'abc1234' },
-          appPath: '.',
-        },
+  // New K8s-style WorkflowRun with component/project info in labels
+  const run: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+    metadata: {
+      name: 'run-001',
+      uid: 'run-uid-001',
+      namespace: 'my-ns',
+      labels: {
+        'openchoreo.dev/component': 'api-service',
+        'openchoreo.dev/project': 'my-project',
+      },
+      annotations: {
+        'openchoreo.dev/commit': 'abc1234',
+        'openchoreo.dev/image': 'registry.example.com/api-service:abc1234',
+      },
+      creationTimestamp: '2025-01-06T10:00:00Z',
+    },
+    spec: {
+      workflow: {
+        name: 'docker-build',
       },
     },
   };
@@ -368,8 +369,98 @@ describe('transformComponentWorkflowRun', () => {
   it('maps workflow config', () => {
     const result = transformComponentWorkflowRun(run);
     expect(result.workflow?.name).toBe('docker-build');
-    expect(result.workflow?.systemParameters?.repository?.url).toBe(
-      'https://github.com/org/repo.git',
+  });
+
+  it('derives status from Ready condition reason', () => {
+    const withReason: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+      ...run,
+      status: {
+        conditions: [
+          {
+            type: 'Ready',
+            status: 'False',
+            reason: 'BuildFailed',
+            lastTransitionTime: '',
+          },
+        ],
+      },
+    };
+    expect(transformComponentWorkflowRun(withReason).status).toBe(
+      'BuildFailed',
+    );
+  });
+
+  it('derives status as Succeeded when Ready condition is True with no reason', () => {
+    const succeeded: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+      ...run,
+      status: {
+        conditions: [
+          { type: 'Ready', status: 'True', reason: '', lastTransitionTime: '' },
+        ],
+      },
+    };
+    expect(transformComponentWorkflowRun(succeeded).status).toBe('Succeeded');
+  });
+
+  it('derives status as Running when Ready condition is False with no reason', () => {
+    const running: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+      ...run,
+      status: {
+        conditions: [
+          {
+            type: 'Ready',
+            status: 'False',
+            reason: '',
+            lastTransitionTime: '',
+          },
+        ],
+      },
+    };
+    expect(transformComponentWorkflowRun(running).status).toBe('Running');
+  });
+
+  it('derives status as Pending when no Ready condition and no timing fields', () => {
+    const noCondition: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+      ...run,
+      status: { conditions: [] },
+    };
+    expect(transformComponentWorkflowRun(noCondition).status).toBe('Pending');
+  });
+
+  it('derives status as Pending when status is absent', () => {
+    const noStatus: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+      ...run,
+      status: undefined,
+    };
+    expect(transformComponentWorkflowRun(noStatus).status).toBe('Pending');
+  });
+
+  it('derives status as Running when startedAt is set but no conditions or completedAt', () => {
+    const started: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+      ...run,
+      status: { conditions: [], startedAt: '2025-01-06T10:00:01Z' },
+    };
+    expect(transformComponentWorkflowRun(started).status).toBe('Running');
+  });
+
+  it('derives status as Succeeded when completedAt is set even if conditions are stale Running', () => {
+    const staleRunning: OpenChoreoComponents['schemas']['WorkflowRun'] = {
+      ...run,
+      status: {
+        conditions: [
+          {
+            type: 'Ready',
+            status: 'False',
+            reason: 'Running',
+            lastTransitionTime: '',
+          },
+        ],
+        startedAt: '2025-01-06T10:00:01Z',
+        completedAt: '2025-01-06T10:05:00Z',
+      },
+    };
+    expect(transformComponentWorkflowRun(staleRunning).status).toBe(
+      'Succeeded',
     );
   });
 });
