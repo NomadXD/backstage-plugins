@@ -415,6 +415,23 @@ export class PlatformResourceService {
       const body = resource as any;
 
       switch (kind) {
+        case 'environments': {
+          const { error, response } = await client.PUT(
+            '/api/v1/namespaces/{namespaceName}/environments/{envName}',
+            {
+              params: {
+                path: { namespaceName, envName: resourceName },
+              },
+              body,
+            },
+          );
+          if (error || !response.ok) {
+            throw new Error(
+              `Failed to update ${crdKind} definition: ${response.status} ${response.statusText}`,
+            );
+          }
+          break;
+        }
         case 'dataplanes': {
           const { error, response } = await client.PUT(
             '/api/v1/namespaces/{namespaceName}/dataplanes/{dpName}',
