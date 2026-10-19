@@ -56,6 +56,7 @@ const GROUP_ORDER = [
   'development',
   'build',
   'deploy',
+  'endpoints',
   'cell-diagram',
   'diagram',
   'logs',
