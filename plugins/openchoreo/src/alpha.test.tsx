@@ -23,6 +23,7 @@ const ALPHA_EXTENSION_NAMES = [
   ['entity-content', 'release-line-definition'],
   // component-page
   ['entity-content', 'component-deploy'],
+  ['entity-content', 'component-endpoints'],
   ['entity-card', 'deployment-status'],
   ['entity-card', 'runtime-health'],
   // system-page

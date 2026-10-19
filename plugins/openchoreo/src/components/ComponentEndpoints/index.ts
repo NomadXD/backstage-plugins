@@ -1,0 +1,1 @@
+export { ComponentEndpoints } from './ComponentEndpoints';

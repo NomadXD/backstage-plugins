@@ -27,6 +27,11 @@ export interface UseCreateEndpointPathResult {
  */
 export function useCreateEndpointPath(
   entity: Entity,
+  /**
+   * The project to create the endpoint in. Defaults to the entity's own name,
+   * which is right for a project (System) entity; pass it from other pages.
+   */
+  projectName: string = entity.metadata.name,
 ): UseCreateEndpointPathResult {
   const catalogApi = useApi(catalogApiRef);
 
@@ -63,8 +68,8 @@ export function useCreateEndpointPath(
       hasClusterTemplates === true
         ? [namespace, CLUSTER_NAMESPACE]
         : [namespace];
-    return buildCreateEndpointPath(entity.metadata.name, namespaces);
-  }, [entity.metadata.name, namespace, hasClusterTemplates]);
+    return buildCreateEndpointPath(projectName, namespaces);
+  }, [projectName, namespace, hasClusterTemplates]);
 
   return { path, loading, isRefetching };
 }
