@@ -100,6 +100,24 @@ export const CHOREO_LABELS = {
   WORKFLOW_TYPE: 'openchoreo.dev/workflow-type',
   // Marks a SecretReference's category (e.g. git credentials).
   SECRET_TYPE: 'openchoreo.dev/secret-type',
+  // Set on an OpenChoreo Endpoint created for one component's workload
+  // endpoint (see openchoreo internal/labels LabelKeySourceComponent).
+  ENDPOINT_SOURCE_COMPONENT: 'openchoreo.dev/source-component',
+  // The workload endpoint of the source component an Endpoint was created for.
+  ENDPOINT_SOURCE_ENDPOINT: 'openchoreo.dev/source-endpoint',
+  // Set on catalog Endpoint entities: whether the Endpoint is managed by a
+  // component or owned by its project. See {@link ENDPOINT_SCOPE}.
+  ENDPOINT_SCOPE: 'openchoreo.io/endpoint-scope',
+} as const;
+
+/**
+ * Values of the {@link CHOREO_LABELS.ENDPOINT_SCOPE} label. A component-scoped
+ * Endpoint was created for one component's workload endpoint and moves with
+ * that component; a project-scoped one is authored on its own.
+ */
+export const ENDPOINT_SCOPE = {
+  COMPONENT: 'component',
+  PROJECT: 'project',
 } as const;
 
 /**

@@ -25,6 +25,7 @@ export {
 export {
   CHOREO_ANNOTATIONS,
   CHOREO_LABELS,
+  ENDPOINT_SCOPE,
   GENERIC_SECRET_TYPE_VALUE,
   GIT_SECRET_TYPE_VALUE,
   RELATION_DEPLOYS_TO,
@@ -210,6 +211,10 @@ export {
   type EndpointExposures,
   type PlannedExposure,
 } from './utils/endpointExposure';
+export {
+  endpointManagingComponent,
+  type EndpointOwnershipInput,
+} from './utils/endpointOwnership';
 
 // Feature flags types
 export type { OpenChoreoFeatures, FeatureName } from './types/features';

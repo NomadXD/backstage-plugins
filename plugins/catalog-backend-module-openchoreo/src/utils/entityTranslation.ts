@@ -3,6 +3,8 @@ import type { JsonObject } from '@backstage/types';
 import {
   CHOREO_ANNOTATIONS,
   CHOREO_LABELS,
+  ENDPOINT_SCOPE,
+  endpointManagingComponent,
   getRepositoryInfo,
   ComponentTypeUtils,
   type ComponentResponse,
@@ -2504,6 +2506,8 @@ export function translateEndpointToEntities(
     visibility: string[];
     backends: EndpointBackendV1alpha1[];
     schema?: { type?: string; content?: string };
+    /** Component managing the Endpoint; see endpointManagingComponent. */
+    managedByComponent?: string;
     createdAt?: string;
     deletionTimestamp?: string;
   },
@@ -2544,6 +2548,11 @@ export function translateEndpointToEntities(
       },
       labels: {
         [CHOREO_LABELS.MANAGED]: 'true',
+        // Always set, so views can select project-owned Endpoints with a
+        // positive filter (the catalog cannot filter on a missing field).
+        [CHOREO_LABELS.ENDPOINT_SCOPE]: endpoint.managedByComponent
+          ? ENDPOINT_SCOPE.COMPONENT
+          : ENDPOINT_SCOPE.PROJECT,
       },
     },
     spec: {
@@ -2553,6 +2562,9 @@ export function translateEndpointToEntities(
       visibility: endpoint.visibility,
       backends: endpoint.backends,
       ...(hasSchema && { providesApi: `api:${namespaceName}/${apiName}` }),
+      ...(endpoint.managedByComponent && {
+        managedByComponent: endpoint.managedByComponent,
+      }),
     },
   };
 
@@ -2677,6 +2689,10 @@ export function translateNewEndpointToEntities(
       schema: spec?.schema
         ? { type: spec.schema.type, content: spec.schema.content }
         : undefined,
+      managedByComponent: endpointManagingComponent({
+        labels: endpoint.metadata?.labels,
+        backendRefs: spec?.backendRefs,
+      }),
       createdAt: getCreatedAt(endpoint),
       deletionTimestamp: getDeletionTimestamp(endpoint),
     },

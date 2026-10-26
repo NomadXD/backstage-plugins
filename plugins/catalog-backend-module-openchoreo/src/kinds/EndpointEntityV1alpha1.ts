@@ -51,5 +51,11 @@ export interface EndpointEntityV1alpha1 extends Entity {
     backends: EndpointBackendV1alpha1[];
     /** Entity ref of the API entity describing this Endpoint's schema, if any. */
     providesApi?: string;
+    /**
+     * The component that manages this Endpoint, when it was created for one of
+     * that component's workload endpoints and routes only to it. Such an
+     * Endpoint moves with the component; absent for project-owned Endpoints.
+     */
+    managedByComponent?: string;
   };
 }
