@@ -9,6 +9,9 @@ import type {
   ReleaseLineResource,
   EndpointReleaseBindingResponse,
   ResolvedEndpointBackend,
+  AllowedEndpointTypeEntry,
+  ComponentEndpointSummary,
+  EndpointTypeKind,
 } from '@openchoreo/backstage-plugin-common';
 import type { Environment } from '../components/RuntimeLogs/types';
 
@@ -896,6 +899,45 @@ export interface OpenChoreoClientApi {
     name: string,
     namespaceName?: string,
   ): Promise<{ success: boolean; data?: Record<string, unknown> }>;
+
+  /**
+   * Fetch the Endpoints a component manages for its own workload endpoints,
+   * with the allowedEndpoints of its ComponentType.
+   */
+  fetchComponentEndpoints(entity: Entity): Promise<{
+    endpoints: ComponentEndpointSummary[];
+    allowedEndpoints: AllowedEndpointTypeEntry[];
+  }>;
+
+  /** Create an Endpoint for one of a component's workload endpoints. */
+  createComponentEndpoint(
+    entity: Entity,
+    endpoint: {
+      workloadEndpoint: string;
+      typeKind: EndpointTypeKind;
+      typeName: string;
+      visibility: string[];
+      parameters?: Record<string, unknown>;
+      autoDeploy: boolean;
+    },
+  ): Promise<{ name: string }>;
+
+  /**
+   * Update the visibility and parameters of one of a component's Endpoints,
+   * and the workload endpoint it routes to when that was renamed.
+   */
+  updateComponentEndpoint(
+    entity: Entity,
+    endpointName: string,
+    update: {
+      visibility: string[];
+      parameters?: Record<string, unknown>;
+      workloadEndpoint?: string;
+    },
+  ): Promise<ComponentEndpointSummary>;
+
+  /** Delete one of a component's Endpoints. */
+  deleteComponentEndpoint(entity: Entity, endpointName: string): Promise<void>;
 
   /**
    * Fetch per-environment deploy info for a Project entity. Returns one entry

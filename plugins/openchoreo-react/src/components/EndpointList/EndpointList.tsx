@@ -29,11 +29,13 @@ export interface EndpointListProps {
   /**
    * Extra content shown inside an endpoint's row (for example how it is
    * exposed). For the row being edited it receives the edited name and
-   * values, so it follows the form as the developer types.
+   * values, so it follows the form as the developer types, and as
+   * `savedName` the name the row is saved under.
    */
   renderDetails?: (
     endpointName: string,
     endpoint: WorkloadEndpoint,
+    savedName: string,
   ) => ReactNode;
 }
 
@@ -100,8 +102,9 @@ export const EndpointList: FC<EndpointListProps> = ({
                   ? renderDetails?.(
                       editBuffer.editBufferName ?? endpointName,
                       editBuffer.editBuffer ?? endpoint,
+                      endpointName,
                     )
-                  : renderDetails?.(endpointName, endpoint)
+                  : renderDetails?.(endpointName, endpoint, endpointName)
               }
             />
           </Box>

@@ -17,8 +17,6 @@ import {
 } from '@openchoreo/openchoreo-client-node';
 import {
   isSameReleaseLine,
-  CHOREO_LABELS,
-  endpointManagingComponent,
   type EnvironmentResponse,
   type ReleaseBindingResponse,
 } from '@openchoreo/backstage-plugin-common';
@@ -35,6 +33,7 @@ import {
 } from '../transformers/project-release-binding';
 import { scopedName } from '../releaseLineNames';
 import { applyComponentEndpointUrls } from './componentEndpointUrls';
+import { listComponentEndpoints } from '../EndpointService/componentEndpoints';
 
 type ModelsEnvironment = EnvironmentResponse;
 
@@ -2720,49 +2719,6 @@ export class EnvironmentInfoService implements EnvironmentService {
   }
 
   /**
-   * Lists the Endpoints created for a component's own workload endpoints:
-   * labeled with it as source component and routing to nothing else. These
-   * are the Endpoints the Endpoint controller makes the component own, so they
-   * move between environments with it. An Endpoint later edited to route to
-   * another component belongs to the project and is deployed on its own.
-   */
-  private async listComponentEndpoints(
-    client: OpenChoreoApiClient,
-    request: {
-      componentName: string;
-      projectName: string;
-      namespaceName: string;
-    },
-  ): Promise<NewEndpoint[]> {
-    const items = await fetchAllPages(cursor =>
-      client
-        .GET('/api/v1/namespaces/{namespaceName}/endpoints', {
-          params: {
-            path: { namespaceName: request.namespaceName },
-            query: {
-              project: request.projectName,
-              labelSelector: `${CHOREO_LABELS.ENDPOINT_SOURCE_COMPONENT}=${request.componentName}`,
-              limit: 100,
-              cursor,
-            },
-          },
-        })
-        .then(res => {
-          assertApiResponse(res, 'fetch component endpoints');
-          return res.data;
-        }),
-    );
-    return items.filter(
-      ep =>
-        ep.spec?.owner?.projectName === request.projectName &&
-        endpointManagingComponent({
-          labels: ep.metadata.labels,
-          backendRefs: ep.spec?.backendRefs,
-        }) === request.componentName,
-    );
-  }
-
-  /**
    * Replaces the deploy page's ReleaseBinding-derived URLs with those of the
    * component's own Endpoints where it has them; see
    * applyComponentEndpointUrls. Never throws: any failure leaves the
@@ -2782,7 +2738,7 @@ export class EnvironmentInfoService implements EnvironmentService {
       return environments;
     }
     try {
-      const endpoints = await this.listComponentEndpoints(client, request);
+      const endpoints = await listComponentEndpoints(client, request);
       if (endpoints.length === 0) {
         return environments;
       }
@@ -2846,7 +2802,7 @@ export class EnvironmentInfoService implements EnvironmentService {
 
     let endpoints: NewEndpoint[];
     try {
-      endpoints = await this.listComponentEndpoints(client, request);
+      endpoints = await listComponentEndpoints(client, request);
     } catch (error) {
       this.logger.warn(
         `Could not list Endpoints of component ${request.componentName}; they were not deployed to ${request.environment}: ${error}`,
@@ -2924,7 +2880,7 @@ export class EnvironmentInfoService implements EnvironmentService {
 
     let endpoints: NewEndpoint[];
     try {
-      endpoints = await this.listComponentEndpoints(client, request);
+      endpoints = await listComponentEndpoints(client, request);
     } catch (error) {
       this.logger.warn(
         `Could not list Endpoints of component ${request.componentName}; they were not removed from ${request.environment}: ${error}`,

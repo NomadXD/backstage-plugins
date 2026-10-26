@@ -10,6 +10,9 @@ import {
   type ReleaseLineSummary,
   type ReleaseLineOverrides,
   type ReleaseLineResource,
+  type AllowedEndpointTypeEntry,
+  type ComponentEndpointSummary,
+  type EndpointTypeKind,
 } from '@openchoreo/backstage-plugin-common';
 import { CLUSTER_SCOPED_RESOURCE_KINDS } from './OpenChoreoClientApi';
 import type {
@@ -113,6 +116,7 @@ const API_ENDPOINTS = {
   ENDPOINT_RELEASE_SCHEMA: '/endpoint-release-schema',
   ENDPOINT_TYPE_SCHEMA: '/endpoint-type-schema',
   CLUSTER_ENDPOINT_TYPE_SCHEMA: '/cluster-endpoint-type-schema',
+  COMPONENT_ENDPOINTS: '/component-endpoints',
   COMPONENT_TRAITS: '/component-traits',
   RELEASE_LINE: '/release-line',
   COMPONENT_CONFIG: '/component-config',
@@ -182,6 +186,16 @@ function buildReleaseLineResource(
       },
       ...overrides,
     },
+  };
+}
+
+/** The component an entity stands for, as the BFF's request bodies name it. */
+function componentRefBody(entity: Entity) {
+  const { component, project, namespace } = extractEntityMetadata(entity);
+  return {
+    componentName: component,
+    projectName: project,
+    namespaceName: namespace,
   };
 }
 
@@ -717,6 +731,69 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
     }
     return this.apiFetch(API_ENDPOINTS.ENDPOINT_TYPE_SCHEMA, {
       params: { namespaceName, etName: name },
+    });
+  }
+
+  async fetchComponentEndpoints(entity: Entity): Promise<{
+    endpoints: ComponentEndpointSummary[];
+    allowedEndpoints: AllowedEndpointTypeEntry[];
+  }> {
+    const { component, project, namespace } = extractEntityMetadata(entity);
+    const annotations = entity.metadata.annotations ?? {};
+    // The annotation reads `<workloadType>/<name>`.
+    const componentType = annotations[CHOREO_ANNOTATIONS.COMPONENT_TYPE] ?? '';
+    return this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
+      params: {
+        componentName: component,
+        projectName: project,
+        namespaceName: namespace,
+        componentTypeKind:
+          annotations[CHOREO_ANNOTATIONS.COMPONENT_TYPE_KIND] ??
+          'ComponentType',
+        componentTypeName: componentType.slice(componentType.indexOf('/') + 1),
+      },
+    });
+  }
+
+  async createComponentEndpoint(
+    entity: Entity,
+    endpoint: {
+      workloadEndpoint: string;
+      typeKind: EndpointTypeKind;
+      typeName: string;
+      visibility: string[];
+      parameters?: Record<string, unknown>;
+      autoDeploy: boolean;
+    },
+  ): Promise<{ name: string }> {
+    return this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
+      method: 'POST',
+      body: { ...componentRefBody(entity), ...endpoint },
+    });
+  }
+
+  async updateComponentEndpoint(
+    entity: Entity,
+    endpointName: string,
+    update: {
+      visibility: string[];
+      parameters?: Record<string, unknown>;
+      workloadEndpoint?: string;
+    },
+  ): Promise<ComponentEndpointSummary> {
+    return this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
+      method: 'PUT',
+      body: { ...componentRefBody(entity), endpointName, ...update },
+    });
+  }
+
+  async deleteComponentEndpoint(
+    entity: Entity,
+    endpointName: string,
+  ): Promise<void> {
+    await this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
+      method: 'DELETE',
+      body: { ...componentRefBody(entity), endpointName },
     });
   }
 

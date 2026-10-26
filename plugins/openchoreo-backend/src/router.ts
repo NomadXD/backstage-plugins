@@ -1623,6 +1623,108 @@ export async function createRouter({
     );
   });
 
+  // A component's own Endpoints, managed from its configure page.
+  const requireComponentRef = (source: Record<string, unknown>) => {
+    const { componentName, projectName, namespaceName } = source;
+    if (!componentName || !projectName || !namespaceName) {
+      throw new InputError(
+        'componentName, projectName and namespaceName are required',
+      );
+    }
+    return {
+      componentName: componentName as string,
+      projectName: projectName as string,
+      namespaceName: namespaceName as string,
+    };
+  };
+
+  router.get('/component-endpoints', async (req, res) => {
+    const { componentTypeKind, componentTypeName } = req.query;
+    if (!componentTypeName) {
+      throw new InputError('componentTypeName is a required query parameter');
+    }
+    res.json(
+      await endpointInfoService.fetchComponentEndpoints(
+        {
+          ...requireComponentRef(req.query),
+          componentTypeKind:
+            componentTypeKind === 'ClusterComponentType'
+              ? 'ClusterComponentType'
+              : 'ComponentType',
+          componentTypeName: componentTypeName as string,
+        },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
+
+  router.post('/component-endpoints', requireAuth, async (req, res) => {
+    const {
+      workloadEndpoint,
+      typeKind,
+      typeName,
+      visibility,
+      parameters,
+      autoDeploy,
+    } = req.body;
+    if (!workloadEndpoint || !typeName || !Array.isArray(visibility)) {
+      throw new InputError(
+        'workloadEndpoint, typeName and visibility are required in request body',
+      );
+    }
+    res.json(
+      await endpointInfoService.createComponentEndpoint(
+        {
+          ...requireComponentRef(req.body),
+          workloadEndpoint,
+          typeKind:
+            typeKind === 'ClusterEndpointType'
+              ? 'ClusterEndpointType'
+              : 'EndpointType',
+          typeName,
+          visibility,
+          parameters,
+          autoDeploy: autoDeploy === true,
+        },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
+
+  router.put('/component-endpoints', requireAuth, async (req, res) => {
+    const { endpointName, visibility, parameters, workloadEndpoint } = req.body;
+    if (!endpointName || !Array.isArray(visibility)) {
+      throw new InputError(
+        'endpointName and visibility are required in request body',
+      );
+    }
+    res.json(
+      await endpointInfoService.updateComponentEndpoint(
+        {
+          ...requireComponentRef(req.body),
+          endpointName,
+          visibility,
+          parameters,
+          workloadEndpoint,
+        },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
+
+  router.delete('/component-endpoints', requireAuth, async (req, res) => {
+    const { endpointName } = req.body;
+    if (!endpointName) {
+      throw new InputError('endpointName is required in request body');
+    }
+    res.json(
+      await endpointInfoService.deleteComponentEndpoint(
+        { ...requireComponentRef(req.body), endpointName },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
+
   router.get('/project-environment-info', async (req, res) => {
     const { projectName, namespaceName } = req.query;
 

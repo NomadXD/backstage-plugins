@@ -215,6 +215,13 @@ export {
   endpointManagingComponent,
   type EndpointOwnershipInput,
 } from './utils/endpointOwnership';
+export {
+  toDnsLabel,
+  componentEndpointName,
+  buildComponentEndpoint,
+  type ComponentEndpointInput,
+  type ComponentEndpointSummary,
+} from './utils/componentEndpoint';
 
 // Feature flags types
 export type { OpenChoreoFeatures, FeatureName } from './types/features';
