@@ -232,16 +232,22 @@ export async function createRouter({
     }
 
     const userToken = getUserTokenFromRequest(req);
+    const request = {
+      componentName: componentName as string,
+      projectName: projectName as string,
+      namespaceName: namespaceName as string,
+      environment: environment as string,
+    };
 
+    // Take the component's own Endpoints out first so their routes go
+    // before the backend they point at.
+    await environmentInfoService.removeComponentEndpointBindings(
+      request,
+      userToken,
+    );
     res.json(
       await environmentInfoService.deleteReleaseBinding(
-        {
-          componentName: componentName as string,
-          projectName: projectName as string,
-          namespaceName: namespaceName as string,
-          releaseLine: requestReleaseLine(req),
-          environment: environment as string,
-        },
+        { ...request, releaseLine: requestReleaseLine(req) },
         userToken,
       ),
     );
@@ -1768,6 +1774,7 @@ export async function createRouter({
       traitEnvironmentConfigs,
       workloadOverrides,
       releaseName,
+      sourceEnvironment,
     } = req.body;
 
     if (
@@ -1784,22 +1791,36 @@ export async function createRouter({
 
     const userToken = getUserTokenFromRequest(req);
 
-    res.json(
-      await environmentInfoService.updateReleaseBinding(
-        {
-          componentName: componentName as string,
-          projectName: projectName as string,
-          namespaceName: namespaceName as string,
-          releaseLine: requestReleaseLine(req),
-          environment: environment as string,
-          componentTypeEnvironmentConfigs,
-          traitEnvironmentConfigs,
-          workloadOverrides,
-          releaseName: releaseName as string,
-        },
-        userToken,
-      ),
+    const binding = await environmentInfoService.updateReleaseBinding(
+      {
+        componentName: componentName as string,
+        projectName: projectName as string,
+        namespaceName: namespaceName as string,
+        releaseLine: requestReleaseLine(req),
+        environment: environment as string,
+        componentTypeEnvironmentConfigs,
+        traitEnvironmentConfigs,
+        workloadOverrides,
+        releaseName: releaseName as string,
+      },
+      userToken,
     );
+
+    // The component's own Endpoints move with it: promoted from the same
+    // source environment, or deployed at their latest release.
+    await environmentInfoService.syncComponentEndpointBindings(
+      {
+        componentName: componentName as string,
+        projectName: projectName as string,
+        namespaceName: namespaceName as string,
+        environment: environment as string,
+        sourceEnvironment: sourceEnvironment
+          ? (sourceEnvironment as string)
+          : undefined,
+      },
+      userToken,
+    );
+    res.json(binding);
   });
 
   router.patch('/patch-release-binding', requireAuth, async (req, res) => {

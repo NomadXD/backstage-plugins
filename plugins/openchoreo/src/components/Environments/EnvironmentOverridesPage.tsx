@@ -74,6 +74,13 @@ const useStyles = makeStyles(theme => ({
   },
 }));
 
+/**
+ * The environment a pending promotion comes from, which the component's own
+ * Endpoints are promoted from too. A deploy has none.
+ */
+const pendingSourceEnvironment = (action: PendingAction) =>
+  action.type === 'promote' ? action.sourceEnvironment : undefined;
+
 interface EnvironmentOverridesPageProps {
   environment: Environment;
   entity: Entity;
@@ -521,6 +528,7 @@ export const EnvironmentOverridesPage = ({
           undefined,
           undefined,
           releaseLine,
+          pendingSourceEnvironment(pendingAction),
         );
         await onPendingActionComplete(pendingAction);
       } catch (err) {
@@ -559,6 +567,7 @@ export const EnvironmentOverridesPage = ({
           formState.traitFormDataMap,
           formState.workloadFormData,
           releaseLine,
+          pendingSourceEnvironment(pendingAction),
         );
       } else {
         // Plain save — use existing patchReleaseBindingOverrides

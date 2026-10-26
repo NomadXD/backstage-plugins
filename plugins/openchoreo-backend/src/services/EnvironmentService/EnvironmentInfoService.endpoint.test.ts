@@ -341,4 +341,163 @@ describe('EnvironmentInfoService endpoint bindings', () => {
       ).rejects.toBeInstanceOf(PipelineUnavailableError);
     });
   });
+  describe('component Endpoints', () => {
+    const ENDPOINTS = '/api/v1/namespaces/{namespaceName}/endpoints';
+    const component = {
+      componentName: 'orders',
+      projectName: 'store',
+      namespaceName: NS,
+    };
+
+    function endpoint(name: string, components: string[], latest?: string) {
+      return {
+        // Returned by the label-selected list, so it carries the label.
+        metadata: {
+          name,
+          namespace: NS,
+          labels: { 'openchoreo.dev/source-component': 'orders' },
+        },
+        spec: {
+          owner: { projectName: 'store' },
+          type: { kind: 'ClusterEndpointType', name: 'http-route' },
+          visibility: ['external'],
+          backendRefs: components.map(c => ({
+            name: c,
+            kind: 'Component',
+            component: { name: c, endpoint: 'http' },
+          })),
+        },
+        status: latest
+          ? { latestRelease: { name: latest, hash: 'h' } }
+          : undefined,
+      };
+    }
+
+    beforeEach(() => {
+      mockPOST.mockResolvedValue(createOkResponse({}));
+      mockPUT.mockResolvedValue(createOkResponse({}));
+      mockDELETE.mockResolvedValue(createOkResponse(undefined));
+    });
+
+    it('promotes the Endpoints the component owns with the release they run in the source environment', async () => {
+      routeGets({
+        [ENDPOINTS]: {
+          items: [
+            endpoint('orders-api', ['orders'], 'orders-api-def'),
+            endpoint('orders-split', ['orders', 'orders-v2']),
+          ],
+        },
+        [BINDINGS]: { items: [binding('orders-api-dev', 'dev')] },
+      });
+
+      const result = await createService().syncComponentEndpointBindings(
+        { ...component, environment: 'staging', sourceEnvironment: 'dev' },
+        'token',
+      );
+
+      expect(result).toEqual({ deployed: ['orders-api'], skipped: [] });
+      expect(mockGET).toHaveBeenCalledWith(ENDPOINTS, {
+        params: {
+          path: { namespaceName: NS },
+          query: expect.objectContaining({
+            project: 'store',
+            labelSelector: 'openchoreo.dev/source-component=orders',
+          }),
+        },
+      });
+      expect(mockPOST).toHaveBeenCalledTimes(1);
+      expect(mockPOST).toHaveBeenCalledWith(BINDINGS, {
+        params: { path: { namespaceName: NS } },
+        body: {
+          metadata: { name: 'orders-api-staging', namespace: NS },
+          spec: {
+            owner: { projectName: 'store', endpointName: 'orders-api' },
+            environment: 'staging',
+            endpointRelease: 'orders-api-abc',
+          },
+        },
+      });
+    });
+
+    it('deploys the latest release when there is no source environment', async () => {
+      routeGets({
+        [ENDPOINTS]: {
+          items: [endpoint('orders-api', ['orders'], 'orders-api-def')],
+        },
+        [BINDINGS]: { items: [] },
+      });
+
+      const result = await createService().syncComponentEndpointBindings(
+        { ...component, environment: 'dev' },
+        'token',
+      );
+
+      expect(result.deployed).toEqual(['orders-api']);
+      expect(mockPOST).toHaveBeenCalledWith(
+        BINDINGS,
+        expect.objectContaining({
+          body: expect.objectContaining({
+            spec: expect.objectContaining({
+              environment: 'dev',
+              endpointRelease: 'orders-api-def',
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('skips an Endpoint that is not deployed in the source environment', async () => {
+      routeGets({
+        [ENDPOINTS]: {
+          items: [endpoint('orders-api', ['orders'], 'orders-api-def')],
+        },
+        [BINDINGS]: { items: [] },
+      });
+
+      const result = await createService().syncComponentEndpointBindings(
+        { ...component, environment: 'staging', sourceEnvironment: 'dev' },
+        'token',
+      );
+
+      expect(result).toEqual({ deployed: [], skipped: ['orders-api'] });
+      expect(mockPOST).not.toHaveBeenCalled();
+      expect(mockPUT).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when the Endpoints cannot be listed', async () => {
+      routeGets({});
+
+      await expect(
+        createService().syncComponentEndpointBindings(
+          { ...component, environment: 'dev' },
+          'token',
+        ),
+      ).resolves.toEqual({ deployed: [], skipped: [] });
+    });
+
+    it('removes the component Endpoints from the environment', async () => {
+      routeGets({
+        [ENDPOINTS]: { items: [endpoint('orders-api', ['orders'])] },
+        [BINDINGS]: { items: [binding('orders-api-dev', 'dev')] },
+      });
+
+      const result = await createService().removeComponentEndpointBindings(
+        { ...component, environment: 'dev' },
+        'token',
+      );
+
+      expect(result).toEqual({ removed: ['orders-api'], skipped: [] });
+      expect(mockDELETE).toHaveBeenCalledWith(
+        `${BINDINGS}/{endpointReleaseBindingName}`,
+        {
+          params: {
+            path: {
+              namespaceName: NS,
+              endpointReleaseBindingName: 'orders-api-dev',
+            },
+          },
+        },
+      );
+    });
+  });
 });

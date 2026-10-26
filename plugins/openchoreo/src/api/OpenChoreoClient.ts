@@ -702,6 +702,24 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
     });
   }
 
+  async fetchEndpointTypeParametersSchema(
+    kind: 'EndpointType' | 'ClusterEndpointType',
+    name: string,
+    namespaceName?: string,
+  ): Promise<{ success: boolean; data?: Record<string, unknown> }> {
+    if (kind === 'ClusterEndpointType') {
+      return this.apiFetch(API_ENDPOINTS.CLUSTER_ENDPOINT_TYPE_SCHEMA, {
+        params: { cetName: name },
+      });
+    }
+    if (!namespaceName) {
+      throw new Error(`A namespace is required to read EndpointType ${name}`);
+    }
+    return this.apiFetch(API_ENDPOINTS.ENDPOINT_TYPE_SCHEMA, {
+      params: { namespaceName, etName: name },
+    });
+  }
+
   async fetchEndpointTypeSchema(
     entity: Entity,
   ): Promise<{ success: boolean; data?: Record<string, unknown> }> {
@@ -829,6 +847,7 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
     traitEnvironmentConfigs?: unknown,
     workloadOverrides?: any,
     releaseLine?: string,
+    sourceEnvironment?: string,
   ): Promise<any> {
     const { component, project, namespace } = extractEntityMetadata(entity);
 
@@ -840,6 +859,10 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
       releaseName,
     };
     Object.assign(body, releaseLineField(releaseLine));
+
+    if (sourceEnvironment) {
+      body.sourceEnvironment = sourceEnvironment;
+    }
 
     if (componentTypeEnvironmentConfigs !== undefined) {
       body.componentTypeEnvironmentConfigs = componentTypeEnvironmentConfigs;

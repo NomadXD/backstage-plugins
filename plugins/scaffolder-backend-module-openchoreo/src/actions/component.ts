@@ -22,6 +22,10 @@ import {
   translateComponentToEntity,
 } from '@openchoreo/backstage-plugin-catalog-backend-module';
 import type { AuthService } from '@backstage/backend-plugin-api';
+import {
+  generateComponentEndpoints,
+  type WorkloadEndpointLike,
+} from './componentEndpoints';
 
 /**
  * Namespace used for cluster-scoped resources such as ClusterWorkflows.
@@ -211,6 +215,13 @@ export const createComponentAction = (
           z.string({
             description: 'The namespace where the component was created',
           }),
+        endpointNames: z =>
+          z
+            .array(z.string(), {
+              description:
+                'Endpoints created to expose the workload endpoints, per the ComponentType allowedEndpoints',
+            })
+            .optional(),
       },
     },
     async handler(ctx) {
@@ -589,6 +600,29 @@ export const createComponentAction = (
             ctx.logger.info(
               `Workload created successfully: ${JSON.stringify(workloadData)}`,
             );
+
+            // Expose the workload endpoints through Endpoints when the
+            // ComponentType declares allowedEndpoints. The Endpoint
+            // controller makes this component their owner and, with
+            // autoDeploy, deploys them alongside it.
+            const createdEndpoints = await generateComponentEndpoints({
+              client,
+              logger: ctx.logger,
+              namespaceName,
+              projectName,
+              componentName: ctx.input.componentName,
+              componentTypeKind,
+              componentTypeName: ctx.input.componentType,
+              workloadEndpoints: (workloadResource.spec.endpoints ??
+                {}) as Record<string, WorkloadEndpointLike>,
+              exposures: workloadDetails?.endpointExposures,
+              autoDeploy,
+              insertEntity: entity => immediateCatalog.insertEntity(entity),
+              defaultOwner:
+                config.getOptionalString('openchoreo.defaultOwner') ||
+                'openchoreo-users',
+            });
+            ctx.output('endpointNames', createdEndpoints);
           }
         } else if (isExternalCI) {
           ctx.logger.info(

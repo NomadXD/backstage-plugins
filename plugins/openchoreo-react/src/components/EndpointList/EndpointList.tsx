@@ -1,4 +1,4 @@
-import type { FC } from 'react';
+import type { FC, ReactNode } from 'react';
 import { Box, Button } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
 import AddIcon from '@material-ui/icons/Add';
@@ -26,6 +26,15 @@ export interface EndpointListProps {
   onRemoveEndpoint: (endpointName: string) => void;
   /** Callback to add new endpoint (returns the new endpoint name) */
   onAddEndpoint: () => string;
+  /**
+   * Extra content shown inside an endpoint's row (for example how it is
+   * exposed). For the row being edited it receives the edited name and
+   * values, so it follows the form as the developer types.
+   */
+  renderDetails?: (
+    endpointName: string,
+    endpoint: WorkloadEndpoint,
+  ) => ReactNode;
 }
 
 /**
@@ -38,6 +47,7 @@ export const EndpointList: FC<EndpointListProps> = ({
   editBuffer,
   onRemoveEndpoint,
   onAddEndpoint,
+  renderDetails,
 }) => {
   const classes = useStyles();
 
@@ -85,6 +95,14 @@ export const EndpointList: FC<EndpointListProps> = ({
               onChange={editBuffer.updateBuffer}
               onNameChange={editBuffer.updateBufferName}
               onRemove={() => handleRemoveEndpoint(endpointName)}
+              details={
+                isCurrentlyEditing
+                  ? renderDetails?.(
+                      editBuffer.editBufferName ?? endpointName,
+                      editBuffer.editBuffer ?? endpoint,
+                    )
+                  : renderDetails?.(endpointName, endpoint)
+              }
             />
           </Box>
         );

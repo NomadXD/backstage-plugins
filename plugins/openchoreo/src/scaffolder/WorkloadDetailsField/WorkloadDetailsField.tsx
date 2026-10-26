@@ -49,7 +49,18 @@ import type {
   FileVar,
   Container,
 } from '@openchoreo/backstage-plugin-common';
+import type {
+  AllowedEndpointTypeEntry,
+  EndpointExposureChoice,
+  EndpointExposures,
+} from '@openchoreo/backstage-plugin-common';
 import { openChoreoClientApiRef } from '../../api/OpenChoreoClientApi';
+import {
+  EndpointExposure,
+  chosenEndpointTypeKeys,
+  formExposures,
+  useEndpointTypeSchemas,
+} from './EndpointExposure';
 
 const CONTAINER_NAME = 'main';
 
@@ -163,6 +174,12 @@ const useStyles = makeStyles(theme => ({
 export interface WorkloadDetailsData {
   ctdParameters: Record<string, any>;
   endpoints: Record<string, WorkloadEndpoint>;
+  /**
+   * The EndpointType and parameters chosen per workload endpoint, used to
+   * create the component's Endpoints when its ComponentType declares
+   * allowedEndpoints.
+   */
+  endpointExposures?: EndpointExposures;
   envVars: EnvVar[];
   fileMounts: FileVar[];
   traits: Array<{
@@ -370,6 +387,13 @@ export const WorkloadDetailsField = ({
   const allowedTraits = uiSchema?.['ui:options']?.allowedTraits as
     | Array<{ kind?: string; name: string }>
     | undefined;
+  const allowedEndpointsOption = uiSchema?.['ui:options']?.allowedEndpoints as
+    | AllowedEndpointTypeEntry[]
+    | undefined;
+  const allowedEndpoints = useMemo(
+    () => allowedEndpointsOption ?? [],
+    [allowedEndpointsOption],
+  );
   const isDeploymentType = workloadType.startsWith('deployment');
 
   // State
@@ -379,6 +403,11 @@ export const WorkloadDetailsField = ({
   const [endpoints, setEndpoints] = useState<Record<string, WorkloadEndpoint>>(
     formData?.endpoints || {},
   );
+  const [endpointExposures, setEndpointExposures] = useState<EndpointExposures>(
+    formData?.endpointExposures || {},
+  );
+  // Read by emitChange, so its many call sites need not thread exposures.
+  const endpointExposuresRef = useRef(endpointExposures);
   const [envVars, setEnvVars] = useState<EnvVar[]>(formData?.envVars || []);
   const [fileMounts, setFileMounts] = useState<FileVar[]>(
     formData?.fileMounts || [],
@@ -419,6 +448,13 @@ export const WorkloadDetailsField = ({
       onChange({
         ctdParameters: newCtd,
         endpoints: isFromImage ? newEndpoints : {},
+        endpointExposures: isFromImage
+          ? formExposures(
+              newEndpoints,
+              allowedEndpoints,
+              endpointExposuresRef.current,
+            )
+          : {},
         envVars: isFromImage ? newEnvVars : [],
         fileMounts: isFromImage ? newFileMounts : [],
         traits: newTraits.map(t => ({
@@ -430,7 +466,7 @@ export const WorkloadDetailsField = ({
         isEditing: isAnyEditorActiveRef.current,
       });
     },
-    [onChange, isFromImage],
+    [onChange, isFromImage, allowedEndpoints],
   );
 
   // ── Container wrapper for hooks ─────────────────────────────────
@@ -602,8 +638,24 @@ export const WorkloadDetailsField = ({
 
   const endpointEditBuffer = useEndpointEditBuffer({
     endpoints,
-    onEndpointReplace: (name: string, endpoint: WorkloadEndpoint) => {
+    onEndpointReplace: (
+      name: string,
+      endpoint: WorkloadEndpoint,
+      oldNameToRemove?: string,
+    ) => {
       const newEndpoints = { ...endpoints, [name]: endpoint };
+      if (oldNameToRemove && oldNameToRemove !== name) {
+        delete newEndpoints[oldNameToRemove];
+        // A renamed endpoint keeps the exposure chosen under its old name,
+        // unless one was already chosen under the new name while editing.
+        const exposures = endpointExposuresRef.current;
+        if (exposures[oldNameToRemove] && !exposures[name]) {
+          const moved = { ...exposures, [name]: exposures[oldNameToRemove] };
+          delete moved[oldNameToRemove];
+          endpointExposuresRef.current = moved;
+          setEndpointExposures(moved);
+        }
+      }
       handleEndpointChange(newEndpoints);
     },
     onRemoveEndpoint: (name: string) => {
@@ -620,6 +672,28 @@ export const WorkloadDetailsField = ({
       handleEndpointChange(newEndpoints);
     },
     [endpoints, handleEndpointChange],
+  );
+
+  const handleExposureChange = useCallback(
+    (endpointName: string, choice: EndpointExposureChoice) => {
+      const newExposures = {
+        ...endpointExposuresRef.current,
+        [endpointName]: choice,
+      };
+      endpointExposuresRef.current = newExposures;
+      setEndpointExposures(newExposures);
+      emitChange(ctdParameters, endpoints, envVars, fileMounts, addedTraits);
+    },
+    [ctdParameters, endpoints, envVars, fileMounts, addedTraits, emitChange],
+  );
+
+  const endpointTypeSchemas = useEndpointTypeSchemas(
+    useMemo(
+      () =>
+        chosenEndpointTypeKeys(endpoints, allowedEndpoints, endpointExposures),
+      [endpoints, allowedEndpoints, endpointExposures],
+    ),
+    namespaceName,
   );
 
   const handleAddEndpoint = useCallback((): string => {
@@ -749,6 +823,13 @@ export const WorkloadDetailsField = ({
     onChange({
       ctdParameters,
       endpoints: isFromImage ? endpoints : {},
+      endpointExposures: isFromImage
+        ? formExposures(
+            endpoints,
+            allowedEndpoints,
+            endpointExposuresRef.current,
+          )
+        : {},
       envVars: isFromImage ? envVars : [],
       fileMounts: isFromImage ? fileMounts : [],
       traits: addedTraits.map(t => ({
@@ -1188,7 +1269,9 @@ export const WorkloadDetailsField = ({
             Endpoints
           </Typography>
           <Typography variant="body2" color="textSecondary" gutterBottom>
-            Define network endpoints for your component.
+            {allowedEndpoints.length > 0
+              ? 'Define network endpoints for your component and how each is exposed. Internal and external endpoints get an Endpoint of the chosen type.'
+              : 'Define network endpoints for your component.'}
           </Typography>
           <EndpointList
             endpoints={endpoints}
@@ -1196,6 +1279,19 @@ export const WorkloadDetailsField = ({
             editBuffer={endpointEditBuffer}
             onRemoveEndpoint={handleRemoveEndpoint}
             onAddEndpoint={handleAddEndpoint}
+            renderDetails={
+              allowedEndpoints.length > 0
+                ? (name, endpoint) => (
+                    <EndpointExposure
+                      endpoint={endpoint}
+                      allowedEndpoints={allowedEndpoints}
+                      choice={endpointExposures[name]}
+                      schemas={endpointTypeSchemas}
+                      onChange={choice => handleExposureChange(name, choice)}
+                    />
+                  )
+                : undefined
+            }
           />
         </>
       )}

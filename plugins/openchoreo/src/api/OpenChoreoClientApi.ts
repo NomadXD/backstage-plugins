@@ -888,6 +888,16 @@ export interface OpenChoreoClientApi {
   ): Promise<{ success: boolean; data?: Record<string, unknown> }>;
 
   /**
+   * Fetch the parameters schema of a (Cluster)EndpointType by name, for
+   * choosing one before any Endpoint exists (component creation).
+   */
+  fetchEndpointTypeParametersSchema(
+    kind: 'EndpointType' | 'ClusterEndpointType',
+    name: string,
+    namespaceName?: string,
+  ): Promise<{ success: boolean; data?: Record<string, unknown> }>;
+
+  /**
    * Fetch per-environment deploy info for a Project entity. Returns one entry
    * per environment in the project's deployment pipeline (including
    * environments without bindings yet), joined with the project's latest
@@ -946,6 +956,12 @@ export interface OpenChoreoClientApi {
     traitEnvironmentConfigs?: unknown,
     workloadOverrides?: any,
     releaseLine?: string,
+    /**
+     * The environment a promotion comes from. The component's own Endpoints
+     * are promoted with the release they run there; without it they deploy
+     * at their latest release.
+     */
+    sourceEnvironment?: string,
   ): Promise<any>;
 
   /** Patch release binding overrides */
