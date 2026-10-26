@@ -145,6 +145,56 @@ describe('translateNewEndpointToEntities', () => {
         endpoint: 'http',
       },
     ]);
+    expect(endpoint.metadata.labels?.['openchoreo.io/endpoint-scope']).toBe(
+      'project',
+    );
+    expect(endpoint.spec?.managedByComponent).toBeUndefined();
+  });
+
+  const translateWith = (
+    labels: Record<string, string>,
+    components: string[],
+  ) =>
+    translateNewEndpointToEntities(
+      {
+        metadata: { name: 'orders-http', namespace: 'acme', labels },
+        spec: {
+          owner: { projectName: 'store' },
+          type: { name: 'http-route' },
+          visibility: ['external'],
+          backendRefs: components.map(name => ({
+            name,
+            component: { name, endpoint: 'http' },
+          })),
+        },
+      } as any,
+      'acme',
+      {
+        providerName: 'openchoreo-provider',
+        defaultOwner: 'group:default/openchoreo',
+      } as any,
+    )[0];
+
+  it('marks an Endpoint created for a component as component-scoped', () => {
+    const endpoint = translateWith(
+      { 'openchoreo.dev/source-component': 'orders' },
+      ['orders'],
+    );
+    expect(endpoint.metadata.labels?.['openchoreo.io/endpoint-scope']).toBe(
+      'component',
+    );
+    expect(endpoint.spec?.managedByComponent).toBe('orders');
+  });
+
+  it('marks a generated Endpoint routing to another component as project-scoped', () => {
+    const endpoint = translateWith(
+      { 'openchoreo.dev/source-component': 'orders' },
+      ['orders', 'orders-v2'],
+    );
+    expect(endpoint.metadata.labels?.['openchoreo.io/endpoint-scope']).toBe(
+      'project',
+    );
+    expect(endpoint.spec?.managedByComponent).toBeUndefined();
   });
 });
 

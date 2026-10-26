@@ -17,6 +17,8 @@ import {
 } from '@openchoreo/openchoreo-client-node';
 import {
   isSameReleaseLine,
+  CHOREO_LABELS,
+  endpointManagingComponent,
   type EnvironmentResponse,
   type ReleaseBindingResponse,
 } from '@openchoreo/backstage-plugin-common';
@@ -51,12 +53,6 @@ type NewEndpointReleaseBinding =
   OpenChoreoComponents['schemas']['EndpointReleaseBinding'];
 
 type NewEndpoint = OpenChoreoComponents['schemas']['Endpoint'];
-
-/**
- * Label marking an Endpoint as created for one component's workload endpoint
- * (see openchoreo internal/labels LabelKeySourceComponent).
- */
-const SOURCE_COMPONENT_LABEL = 'openchoreo.dev/source-component';
 
 type OpenChoreoApiClient = ReturnType<typeof createOpenChoreoApiClient>;
 
@@ -2735,7 +2731,7 @@ export class EnvironmentInfoService implements EnvironmentService {
             path: { namespaceName: request.namespaceName },
             query: {
               project: request.projectName,
-              labelSelector: `${SOURCE_COMPONENT_LABEL}=${request.componentName}`,
+              labelSelector: `${CHOREO_LABELS.ENDPOINT_SOURCE_COMPONENT}=${request.componentName}`,
               limit: 100,
               cursor,
             },
@@ -2749,12 +2745,10 @@ export class EnvironmentInfoService implements EnvironmentService {
     return items.filter(
       ep =>
         ep.spec?.owner?.projectName === request.projectName &&
-        (ep.spec?.backendRefs ?? []).length > 0 &&
-        (ep.spec?.backendRefs ?? []).every(
-          ref =>
-            (ref.kind ?? 'Component') === 'Component' &&
-            ref.component?.name === request.componentName,
-        ),
+        endpointManagingComponent({
+          labels: ep.metadata.labels,
+          backendRefs: ep.spec?.backendRefs,
+        }) === request.componentName,
     );
   }
 
