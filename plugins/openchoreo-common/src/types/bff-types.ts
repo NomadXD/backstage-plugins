@@ -540,11 +540,19 @@ export interface ObservabilityPlaneResponse {
 // Release binding & deployment
 // ---------------------------------------------------------------------------
 
+/** Security an Endpoint's type declares for one of its URLs. */
+export interface EndpointURLSecurity {
+  scheme: 'none' | 'apiKey' | 'oauth2' | 'basicAuth';
+  apiKey?: { in: 'header' | 'query'; name: string };
+}
+
 export interface ReleaseBindingEndpointURLDetails {
   host: string;
   path?: string;
   port: number;
   scheme: string;
+  /** Present for URLs that come from an Endpoint's status.urls. */
+  security?: EndpointURLSecurity;
 }
 
 export interface ReleaseBindingEndpoint {
@@ -552,7 +560,13 @@ export interface ReleaseBindingEndpoint {
   type?: string;
   externalURLs?: Record<string, ReleaseBindingEndpointURLDetails>;
   internalURLs?: Record<string, ReleaseBindingEndpointURLDetails>;
+  /** Namespace-visibility URL; only Endpoints report one. */
+  namespaceURLs?: Record<string, ReleaseBindingEndpointURLDetails>;
   serviceURL?: ReleaseBindingEndpointURLDetails;
+  /** Project-visibility URL declared by an Endpoint; preferred over serviceURL. */
+  projectURL?: ReleaseBindingEndpointURLDetails;
+  /** The Endpoint the URLs above come from, when they come from one. */
+  endpointName?: string;
 }
 
 export interface ReleaseBindingResponse {

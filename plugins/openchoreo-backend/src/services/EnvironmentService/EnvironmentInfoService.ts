@@ -34,6 +34,7 @@ import {
   type ProjectDeploymentStatus,
 } from '../transformers/project-release-binding';
 import { scopedName } from '../releaseLineNames';
+import { applyComponentEndpointUrls } from './componentEndpointUrls';
 
 type ModelsEnvironment = EnvironmentResponse;
 
@@ -362,13 +363,22 @@ export class EnvironmentInfoService implements EnvironmentService {
 
       // Transform environment data with bindings and promotion information
       const transformStart = Date.now();
-      const result = this.transformEnvironmentDataWithBindings(
+      const transformed = this.transformEnvironmentDataWithBindings(
         environments,
         bindings,
         deploymentPipeline,
         projectBindings,
       );
       const transformEnd = Date.now();
+
+      // Workload endpoints exposed through the component's own Endpoints take
+      // their URLs from those Endpoints; everything else keeps the
+      // ReleaseBinding's. Fail-open, like the project-binding enrichment.
+      const result = await this.overlayComponentEndpointUrls(
+        client,
+        request,
+        transformed,
+      );
 
       const totalTime = Date.now() - startTime;
       this.logger.debug(
@@ -2750,6 +2760,60 @@ export class EnvironmentInfoService implements EnvironmentService {
           backendRefs: ep.spec?.backendRefs,
         }) === request.componentName,
     );
+  }
+
+  /**
+   * Replaces the deploy page's ReleaseBinding-derived URLs with those of the
+   * component's own Endpoints where it has them; see
+   * applyComponentEndpointUrls. Never throws: any failure leaves the
+   * ReleaseBinding URLs in place, which is what components of older
+   * ComponentTypes always show.
+   */
+  private async overlayComponentEndpointUrls(
+    client: OpenChoreoApiClient,
+    request: {
+      componentName: string;
+      projectName: string;
+      namespaceName: string;
+    },
+    environments: Environment[],
+  ): Promise<Environment[]> {
+    if (environments.length === 0) {
+      return environments;
+    }
+    try {
+      const endpoints = await this.listComponentEndpoints(client, request);
+      if (endpoints.length === 0) {
+        return environments;
+      }
+      const withBindings = await Promise.all(
+        endpoints.map(async endpoint => ({
+          endpoint,
+          bindings: await this.listEndpointBindings(
+            client,
+            request.namespaceName,
+            endpoint.metadata.name,
+            request.projectName,
+          ),
+        })),
+      );
+      return applyComponentEndpointUrls(environments, withBindings);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === 'NotAllowedError' ||
+          error.name === 'AuthenticationError')
+      ) {
+        this.logger.debug(
+          `Not allowed to read Endpoints of component ${request.componentName}; showing ReleaseBinding URLs: ${error}`,
+        );
+      } else {
+        this.logger.warn(
+          `Could not read Endpoints of component ${request.componentName}; showing ReleaseBinding URLs: ${error}`,
+        );
+      }
+      return environments;
+    }
   }
 
   /**

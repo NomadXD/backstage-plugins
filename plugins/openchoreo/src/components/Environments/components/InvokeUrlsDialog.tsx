@@ -14,15 +14,25 @@ import {
 } from '@material-ui/core';
 import { useTheme } from '@material-ui/core/styles';
 import FileCopyOutlinedIcon from '@material-ui/icons/FileCopyOutlined';
-import type { EndpointInfo } from '../hooks/useEnvironmentData';
-import { buildServiceUrl, buildUrl } from '../utils/invokeUrlUtils';
+import type {
+  EndpointInfo,
+  EndpointURLDetails,
+  EndpointURLSecurity,
+} from '../hooks/useEnvironmentData';
+import {
+  buildUrl,
+  describeSecurity,
+  projectUrlOf,
+} from '../utils/invokeUrlUtils';
 
 interface URLRowProps {
   url: string;
   label: string;
+  /** What a caller must present, for URLs that come from an Endpoint. */
+  security?: EndpointURLSecurity;
 }
 
-const URLRow = ({ url, label }: URLRowProps) => {
+const URLRow = ({ url, label, security }: URLRowProps) => {
   const theme = useTheme();
   const [copied, setCopied] = useState(false);
 
@@ -44,6 +54,14 @@ const URLRow = ({ url, label }: URLRowProps) => {
           size="small"
           style={{ fontSize: '0.7rem', height: 20 }}
         />
+        {describeSecurity(security) && (
+          <Chip
+            label={describeSecurity(security)}
+            size="small"
+            variant="outlined"
+            style={{ fontSize: '0.7rem', height: 20, marginLeft: 6 }}
+          />
+        )}
       </Box>
       <Box display="flex" alignItems="flex-start">
         <Box
@@ -95,6 +113,20 @@ const URLRow = ({ url, label }: URLRowProps) => {
   );
 };
 
+const urlRows = (
+  urls: Record<string, EndpointURLDetails> | undefined,
+  label: string,
+  keyPrefix: string,
+) =>
+  Object.entries(urls ?? {}).map(([protocol, details]) => (
+    <URLRow
+      key={`${keyPrefix}-${protocol}`}
+      url={buildUrl(details)}
+      label={label}
+      security={details.security}
+    />
+  ));
+
 interface InvokeUrlsDialogProps {
   open: boolean;
   onClose: () => void;
@@ -136,35 +168,26 @@ export const InvokeUrlsDialog = ({
                     ({endpoint.type})
                   </Typography>
                 )}
+                {endpoint.endpointName && (
+                  <Typography
+                    variant="caption"
+                    color="textSecondary"
+                    style={{ marginLeft: 8 }}
+                  >
+                    via Endpoint {endpoint.endpointName}
+                  </Typography>
+                )}
               </Box>
               <Divider style={{ marginBottom: 12 }} />
 
-              {endpoint.externalURLs &&
-                Object.entries(endpoint.externalURLs).map(
-                  ([protocol, details]) => (
-                    <URLRow
-                      key={`ext-${protocol}`}
-                      url={buildUrl(details)}
-                      label="External"
-                    />
-                  ),
-                )}
-
-              {endpoint.internalURLs &&
-                Object.entries(endpoint.internalURLs).map(
-                  ([protocol, details]) => (
-                    <URLRow
-                      key={`int-${protocol}`}
-                      url={buildUrl(details)}
-                      label="Internal"
-                    />
-                  ),
-                )}
-
-              {endpoint.serviceURL && (
+              {urlRows(endpoint.externalURLs, 'External', 'ext')}
+              {urlRows(endpoint.internalURLs, 'Internal', 'int')}
+              {urlRows(endpoint.namespaceURLs, 'Namespace', 'ns')}
+              {projectUrlOf(endpoint) && (
                 <URLRow
-                  url={buildServiceUrl(endpoint.serviceURL)}
+                  url={projectUrlOf(endpoint)!}
                   label="Project"
+                  security={endpoint.projectURL?.security}
                 />
               )}
             </Box>

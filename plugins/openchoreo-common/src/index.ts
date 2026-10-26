@@ -258,6 +258,7 @@ export type {
   WorkflowPlaneResponse,
   ObservabilityPlaneResponse,
   ReleaseBindingEndpointURLDetails,
+  EndpointURLSecurity,
   ReleaseBindingEndpoint,
   ReleaseBindingResponse,
   ReleaseBindingCondition,
