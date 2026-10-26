@@ -3,7 +3,6 @@ import {
   planComponentEndpoints,
   SOURCE_COMPONENT_LABEL,
   SOURCE_ENDPOINT_LABEL,
-  toDnsLabel,
 } from './componentEndpoints';
 
 const mockTranslate = jest.fn();
@@ -91,24 +90,6 @@ describe('planComponentEndpoints', () => {
       [{ ...http, ref: { name: 'ns-route' } as any }],
     );
     expect(planned.typeKind).toBe('EndpointType');
-  });
-});
-
-describe('toDnsLabel', () => {
-  it('keeps valid short names', () => {
-    expect(toDnsLabel('orders-api')).toBe('orders-api');
-  });
-
-  it('replaces invalid characters', () => {
-    expect(toDnsLabel('Orders_API.v1')).toBe('orders-api-v1');
-  });
-
-  it('shortens long names with a stable hash', () => {
-    const long = `${'a'.repeat(50)}-${'b'.repeat(30)}`;
-    const label = toDnsLabel(long);
-    expect(label).toHaveLength(63);
-    expect(label).toBe(toDnsLabel(long));
-    expect(label).not.toBe(toDnsLabel(`${long}c`));
   });
 });
 

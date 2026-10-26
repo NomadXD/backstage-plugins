@@ -48,6 +48,11 @@ import { useReleases } from '../hooks/useReleases';
 import { useEnvironmentsContext } from '../EnvironmentsContext';
 import { useNotification } from '../../../hooks';
 import { pickOverridableProperties } from '../../ReleaseLines/releaseLineUtils';
+import { useComponentEndpoints } from './hooks/useComponentEndpoints';
+import {
+  endpointChangeList,
+  planEndpointChanges,
+} from './componentEndpointDrafts';
 
 /** Stable empty array to avoid unnecessary rerenders in WorkloadProvider */
 const EMPTY_BUILDS: never[] = [];
@@ -229,6 +234,27 @@ export const WorkloadConfigPage = ({
 
   // Calculate workload changes — compares full resources
   const workloadChanges = useWorkloadChanges(initialResource, workloadResource);
+
+  // The component's own Endpoints, staged with the workload and saved after
+  // it, so they can route to workload endpoints added or renamed here.
+  // Batch workloads have no endpoints to expose.
+  const workloadType = (
+    entity.metadata.annotations?.[CHOREO_ANNOTATIONS.COMPONENT_TYPE] ?? ''
+  ).split('/')[0];
+  const componentEndpoints = useComponentEndpoints(entity, {
+    skip: workloadType === 'cronjob' || workloadType === 'job',
+  });
+  const workloadEndpoints = workloadResource?.spec?.endpoints;
+  const endpointChanges = useMemo(
+    () =>
+      planEndpointChanges(componentEndpoints.drafts, workloadEndpoints ?? {}),
+    [componentEndpoints.drafts, workloadEndpoints],
+  );
+  const endpointChangeItems = useMemo(
+    () => endpointChangeList(endpointChanges),
+    [endpointChanges],
+  );
+  const hasEndpointChanges = endpointChanges.length > 0;
 
   // Fetch workload and component config
   useEffect(() => {
@@ -444,7 +470,9 @@ export const WorkloadConfigPage = ({
     workloadChanges.hasChanges ||
     hasTraitChanges ||
     hasParameterChanges ||
-    isEditing;
+    hasEndpointChanges ||
+    isEditing ||
+    componentEndpoints.isEditing;
 
   // Warn user before leaving page with unsaved changes (browser navigation/tab close)
   useEffect(() => {
@@ -510,8 +538,9 @@ export const WorkloadConfigPage = ({
   const spec = workloadResource?.spec;
   const hasImage = !!spec?.container?.image?.trim();
 
-  const hasAnyChanges =
+  const hasComponentChanges =
     workloadChanges.hasChanges || hasTraitChanges || hasParameterChanges;
+  const hasAnyChanges = hasComponentChanges || hasEndpointChanges;
 
   const handleSave = async () => {
     if (!workloadResource) {
@@ -557,8 +586,21 @@ export const WorkloadConfigPage = ({
         );
       }
 
+      if (hasEndpointChanges) {
+        await componentEndpoints.apply(
+          workloadResource.spec?.endpoints ?? {},
+          !!autoDeployEnabled,
+        );
+      }
+
       setIsProcessing(false);
-      if (autoDeployEnabled) {
+      if (autoDeployEnabled && !hasComponentChanges) {
+        // Only Endpoints changed: the component gets no new release, and each
+        // Endpoint deploys its own new release.
+        allowNavigationRef.current = true;
+        notification.showSuccess('Endpoints saved.');
+        onReleaseCreated();
+      } else if (autoDeployEnabled) {
         // Auto-deploy controller will create a ComponentRelease itself; manual
         // creation here would be a redundant sibling release that's never bound.
         // We're about to navigate via onReleaseCreated, so disarm the
@@ -653,7 +695,8 @@ export const WorkloadConfigPage = ({
     (hasTraitChanges
       ? traitsState.filter(t => t.state !== 'original').length
       : 0) +
-    parameterChanges.length;
+    parameterChanges.length +
+    endpointChangeItems.length;
 
   // Header actions - Next/Save & Next button
   const headerActions = !isLoading ? (
@@ -666,7 +709,8 @@ export const WorkloadConfigPage = ({
         isLoading ||
         autoDeployLoading ||
         !enableNext ||
-        isEditing
+        isEditing ||
+        componentEndpoints.isEditing
       }
       startIcon={
         isProcessing ? (
@@ -811,6 +855,8 @@ export const WorkloadConfigPage = ({
             hasParameterChanges={hasParameterChanges}
             workloadChanges={workloadChanges}
             parameterChangesCount={parameterChanges.length}
+            componentEndpoints={componentEndpoints}
+            endpointChangesCount={endpointChangeItems.length}
           />
         </WorkloadProvider>
       )}
@@ -823,6 +869,7 @@ export const WorkloadConfigPage = ({
         saving={isProcessing}
         traitsState={hasTraitChanges ? traitsState : undefined}
         parameterChanges={parameterChanges}
+        endpointChanges={endpointChangeItems}
         autoDeploy={autoDeployEnabled}
         lowestEnvironmentName={lowestEnvironment}
       />

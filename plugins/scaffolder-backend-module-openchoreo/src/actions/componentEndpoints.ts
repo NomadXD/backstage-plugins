@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import type { LoggerService } from '@backstage/backend-plugin-api';
 import type {
   createOpenChoreoApiClient,
@@ -9,7 +8,11 @@ import {
   type ImmediateCatalogService,
 } from '@openchoreo/backstage-plugin-catalog-backend-module';
 import {
+  CHOREO_LABELS,
+  buildComponentEndpoint,
+  componentEndpointName,
   planEndpointExposures,
+  toDnsLabel,
   type EndpointExposures,
   type PlannedExposure,
 } from '@openchoreo/backstage-plugin-common';
@@ -24,9 +27,9 @@ type AllowedEndpointType =
  * controller makes the Component its owner, so deleting the component deletes
  * the Endpoint; otherwise the Project owns it.
  */
-export const SOURCE_COMPONENT_LABEL = 'openchoreo.dev/source-component';
+export const SOURCE_COMPONENT_LABEL = CHOREO_LABELS.ENDPOINT_SOURCE_COMPONENT;
 /** Label naming the workload endpoint an Endpoint was created for. */
-export const SOURCE_ENDPOINT_LABEL = 'openchoreo.dev/source-endpoint';
+export const SOURCE_ENDPOINT_LABEL = CHOREO_LABELS.ENDPOINT_SOURCE_ENDPOINT;
 
 /** The part of a workload endpoint that decides how it is exposed. */
 export interface WorkloadEndpointLike {
@@ -37,28 +40,6 @@ export interface WorkloadEndpointLike {
 /** One Endpoint to create for a workload endpoint of the new component. */
 export interface PlannedEndpoint extends PlannedExposure {
   name: string;
-}
-
-const MAX_NAME_LENGTH = 63;
-
-/**
- * Turns an arbitrary string into a DNS-1123 label, keeping it unique when it
- * has to be shortened by replacing the tail with a hash of the full value.
- */
-export function toDnsLabel(value: string): string {
-  const cleaned = value
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-  if (cleaned.length <= MAX_NAME_LENGTH) {
-    return cleaned;
-  }
-  const hash = createHash('sha256').update(value).digest('hex').slice(0, 8);
-  const head = cleaned
-    .slice(0, MAX_NAME_LENGTH - hash.length - 1)
-    .replace(/-$/, '');
-  return `${head}-${hash}`;
 }
 
 /**
@@ -87,11 +68,14 @@ export function planComponentEndpoints(
     );
   }
   return planned.map(p => {
-    const base = `${componentName}-${p.workloadEndpoint}`;
     const split = (perEndpoint.get(p.workloadEndpoint) ?? 0) > 1;
     return {
       ...p,
-      name: toDnsLabel(split ? `${base}-${p.typeName}` : base),
+      name: componentEndpointName(
+        componentName,
+        p.workloadEndpoint,
+        split ? p.typeName : undefined,
+      ),
     };
   });
 }
@@ -140,32 +124,17 @@ export async function generateComponentEndpoints(
   const created: string[] = [];
   for (const endpoint of planned) {
     const backendName = toDnsLabel(componentName);
-    const body = {
-      metadata: {
-        name: endpoint.name,
-        labels: {
-          [SOURCE_COMPONENT_LABEL]: componentName,
-          [SOURCE_ENDPOINT_LABEL]: toDnsLabel(endpoint.workloadEndpoint),
-        },
-      },
-      spec: {
-        owner: { projectName },
-        type: { kind: endpoint.typeKind, name: endpoint.typeName },
-        visibility: endpoint.visibility,
-        backendRefs: [
-          {
-            name: backendName,
-            kind: 'Component',
-            component: {
-              name: componentName,
-              endpoint: endpoint.workloadEndpoint,
-            },
-          },
-        ],
-        ...(endpoint.parameters && { parameters: endpoint.parameters }),
-        autoDeploy: opts.autoDeploy,
-      },
-    };
+    const body = buildComponentEndpoint({
+      name: endpoint.name,
+      componentName,
+      projectName,
+      workloadEndpoint: endpoint.workloadEndpoint,
+      typeKind: endpoint.typeKind,
+      typeName: endpoint.typeName,
+      visibility: endpoint.visibility,
+      parameters: endpoint.parameters,
+      autoDeploy: opts.autoDeploy,
+    });
 
     const { error, response } = await client.POST(
       '/api/v1/namespaces/{namespaceName}/endpoints',
