@@ -200,20 +200,6 @@ const releaseLineDefinitionEntityContent = EntityContentBlueprint.make({
   },
 });
 
-const componentEndpointsEntityContent = EntityContentBlueprint.make({
-  name: 'component-endpoints',
-  params: {
-    path: '/endpoints',
-    title: 'Endpoints',
-    group: 'endpoints',
-    filter: isOpenChoreoManagedOfKind('component'),
-    loader: () =>
-      import('./components/ComponentEndpoints').then(m => (
-        <m.ComponentEndpoints />
-      )),
-  },
-});
-
 const componentDeployEntityContent = EntityContentBlueprint.make({
   name: 'component-deploy',
   params: {
@@ -1131,7 +1117,6 @@ export const openChoreoPlugin = createFrontendPlugin({
     resourceDefinitionEntityContent,
     releaseLineDefinitionEntityContent,
     componentDeployEntityContent,
-    componentEndpointsEntityContent,
     deploymentStatusCard,
     runtimeHealthCard,
     projectDeployEntityContent,

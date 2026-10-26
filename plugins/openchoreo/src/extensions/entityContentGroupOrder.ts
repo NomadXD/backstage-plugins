@@ -13,7 +13,6 @@ const GROUP_ORDER = [
   'api-try-out',
   'build',
   'deploy',
-  'endpoints',
   'development',
   'cell-diagram',
   'diagram',
