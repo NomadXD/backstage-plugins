@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { WorkloadEndpoint } from '@openchoreo/backstage-plugin-common';
 import { EndpointEditor } from './EndpointEditor';
@@ -10,6 +11,7 @@ function renderEditor(
     editDisabled: boolean;
     deleteDisabled: boolean;
     applyDisabled: boolean;
+    details: ReactNode;
   }> = {},
 ) {
   const handlers = {
@@ -34,6 +36,7 @@ function renderEditor(
       editDisabled={overrides.editDisabled}
       deleteDisabled={overrides.deleteDisabled}
       applyDisabled={overrides.applyDisabled}
+      details={overrides.details}
       {...handlers}
     />,
   );
@@ -108,6 +111,24 @@ describe('EndpointEditor', () => {
       expect(
         screen.getByRole('button', { name: /save changes/i }),
       ).toBeDisabled();
+    });
+  });
+  describe('details', () => {
+    it('shows the details under the read-only summary', () => {
+      renderEditor({ details: <span>exposed via http-route</span> });
+      expect(screen.getByText('exposed via http-route')).toBeInTheDocument();
+      expect(screen.getByText('http')).toBeInTheDocument();
+    });
+
+    it('shows the details in the edit form too', () => {
+      renderEditor({
+        isEditing: true,
+        details: <span>exposed via http-route</span>,
+      });
+      expect(screen.getByText('exposed via http-route')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /save changes/i }),
+      ).toBeInTheDocument();
     });
   });
 });

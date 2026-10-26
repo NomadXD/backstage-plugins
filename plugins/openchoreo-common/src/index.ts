@@ -196,6 +196,20 @@ export {
   type PageVariant,
   type ComponentTypeMapping,
 } from './utils/componentTypeUtils';
+export {
+  NO_ENDPOINT,
+  endpointTypeKey,
+  exposableVisibilities,
+  endpointTypeCandidates,
+  resolveEndpointTypes,
+  planEndpointExposures,
+  type AllowedEndpointTypeEntry,
+  type EndpointTypeKind,
+  type ExposableEndpoint,
+  type EndpointExposureChoice,
+  type EndpointExposures,
+  type PlannedExposure,
+} from './utils/endpointExposure';
 
 // Feature flags types
 export type { OpenChoreoFeatures, FeatureName } from './types/features';

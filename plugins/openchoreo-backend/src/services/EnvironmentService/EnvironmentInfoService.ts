@@ -52,6 +52,12 @@ type NewEndpointReleaseBinding =
 
 type NewEndpoint = OpenChoreoComponents['schemas']['Endpoint'];
 
+/**
+ * Label marking an Endpoint as created for one component's workload endpoint
+ * (see openchoreo internal/labels LabelKeySourceComponent).
+ */
+const SOURCE_COMPONENT_LABEL = 'openchoreo.dev/source-component';
+
 type OpenChoreoApiClient = ReturnType<typeof createOpenChoreoApiClient>;
 
 /**
@@ -2705,6 +2711,205 @@ export class EnvironmentInfoService implements EnvironmentService {
       'delete endpoint release binding',
     );
     return { success: true };
+  }
+
+  /**
+   * Lists the Endpoints created for a component's own workload endpoints:
+   * labeled with it as source component and routing to nothing else. These
+   * are the Endpoints the Endpoint controller makes the component own, so they
+   * move between environments with it. An Endpoint later edited to route to
+   * another component belongs to the project and is deployed on its own.
+   */
+  private async listComponentEndpoints(
+    client: OpenChoreoApiClient,
+    request: {
+      componentName: string;
+      projectName: string;
+      namespaceName: string;
+    },
+  ): Promise<NewEndpoint[]> {
+    const items = await fetchAllPages(cursor =>
+      client
+        .GET('/api/v1/namespaces/{namespaceName}/endpoints', {
+          params: {
+            path: { namespaceName: request.namespaceName },
+            query: {
+              project: request.projectName,
+              labelSelector: `${SOURCE_COMPONENT_LABEL}=${request.componentName}`,
+              limit: 100,
+              cursor,
+            },
+          },
+        })
+        .then(res => {
+          assertApiResponse(res, 'fetch component endpoints');
+          return res.data;
+        }),
+    );
+    return items.filter(
+      ep =>
+        ep.spec?.owner?.projectName === request.projectName &&
+        (ep.spec?.backendRefs ?? []).length > 0 &&
+        (ep.spec?.backendRefs ?? []).every(
+          ref =>
+            (ref.kind ?? 'Component') === 'Component' &&
+            ref.component?.name === request.componentName,
+        ),
+    );
+  }
+
+  /**
+   * Carries a component's own Endpoints along when the component is deployed
+   * or promoted to an environment. A promotion pins each Endpoint to the
+   * release it runs in the source environment, the same way the component
+   * moves its source release forward; a direct deploy pins the Endpoint's
+   * latest release.
+   *
+   * Never throws: the component deployment has already happened, so each
+   * Endpoint that cannot follow is reported in `skipped` and logged.
+   */
+  async syncComponentEndpointBindings(
+    request: {
+      componentName: string;
+      projectName: string;
+      namespaceName: string;
+      environment: string;
+      sourceEnvironment?: string;
+    },
+    token?: string,
+  ): Promise<{ deployed: string[]; skipped: string[] }> {
+    const client = createOpenChoreoApiClient({
+      baseUrl: this.baseUrl,
+      token,
+      logger: this.logger,
+    });
+    const deployed: string[] = [];
+    const skipped: string[] = [];
+
+    let endpoints: NewEndpoint[];
+    try {
+      endpoints = await this.listComponentEndpoints(client, request);
+    } catch (error) {
+      this.logger.warn(
+        `Could not list Endpoints of component ${request.componentName}; they were not deployed to ${request.environment}: ${error}`,
+      );
+      return { deployed, skipped };
+    }
+
+    for (const ep of endpoints) {
+      const endpointName = ep.metadata.name;
+      try {
+        let releaseName: string | undefined;
+        if (request.sourceEnvironment) {
+          const source = await this.findEndpointBindingForEnv(client, {
+            endpointName,
+            projectName: request.projectName,
+            namespaceName: request.namespaceName,
+            environment: request.sourceEnvironment,
+          });
+          releaseName = source?.spec?.endpointRelease;
+        } else {
+          releaseName = ep.status?.latestRelease?.name;
+        }
+        if (!releaseName) {
+          skipped.push(endpointName);
+          this.logger.warn(
+            request.sourceEnvironment
+              ? `Endpoint ${endpointName} is not deployed in ${request.sourceEnvironment}; not promoting it to ${request.environment}`
+              : `Endpoint ${endpointName} has no release yet; not deploying it to ${request.environment}`,
+          );
+          continue;
+        }
+        await this.updateEndpointReleaseBinding(
+          {
+            endpointName,
+            projectName: request.projectName,
+            namespaceName: request.namespaceName,
+            environment: request.environment,
+            releaseName,
+          },
+          token,
+        );
+        deployed.push(endpointName);
+      } catch (error) {
+        skipped.push(endpointName);
+        this.logger.warn(
+          `Failed to deploy Endpoint ${endpointName} to ${request.environment} with component ${request.componentName}: ${error}`,
+        );
+      }
+    }
+    return { deployed, skipped };
+  }
+
+  /**
+   * Removes a component's own Endpoints from an environment when the
+   * component's deployment there is removed, so no route is left pointing at
+   * a backend that is gone. Never throws, for the same reason as
+   * syncComponentEndpointBindings.
+   */
+  async removeComponentEndpointBindings(
+    request: {
+      componentName: string;
+      projectName: string;
+      namespaceName: string;
+      environment: string;
+    },
+    token?: string,
+  ): Promise<{ removed: string[]; skipped: string[] }> {
+    const client = createOpenChoreoApiClient({
+      baseUrl: this.baseUrl,
+      token,
+      logger: this.logger,
+    });
+    const removed: string[] = [];
+    const skipped: string[] = [];
+
+    let endpoints: NewEndpoint[];
+    try {
+      endpoints = await this.listComponentEndpoints(client, request);
+    } catch (error) {
+      this.logger.warn(
+        `Could not list Endpoints of component ${request.componentName}; they were not removed from ${request.environment}: ${error}`,
+      );
+      return { removed, skipped };
+    }
+
+    for (const ep of endpoints) {
+      const endpointName = ep.metadata.name;
+      try {
+        const binding = await this.findEndpointBindingForEnv(client, {
+          endpointName,
+          projectName: request.projectName,
+          namespaceName: request.namespaceName,
+          environment: request.environment,
+        });
+        if (!binding?.metadata?.name) {
+          continue;
+        }
+        const { error, response } = await client.DELETE(
+          '/api/v1/namespaces/{namespaceName}/endpointreleasebindings/{endpointReleaseBindingName}',
+          {
+            params: {
+              path: {
+                namespaceName: request.namespaceName,
+                endpointReleaseBindingName: binding.metadata.name,
+              },
+            },
+          },
+        );
+        assertApiResponse(
+          { data: undefined, error, response },
+          'delete endpoint release binding',
+        );
+        removed.push(endpointName);
+      } catch (error) {
+        skipped.push(endpointName);
+        this.logger.warn(
+          `Failed to remove Endpoint ${endpointName} from ${request.environment} with component ${request.componentName}: ${error}`,
+        );
+      }
+    }
+    return { removed, skipped };
   }
 
   /**

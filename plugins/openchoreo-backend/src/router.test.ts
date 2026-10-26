@@ -19,6 +19,9 @@ function createMockServices() {
     environmentInfoService: {
       fetchDeploymentInfo: jest.fn(),
       deleteReleaseBinding: jest.fn(),
+      updateReleaseBinding: jest.fn(),
+      syncComponentEndpointBindings: jest.fn(),
+      removeComponentEndpointBindings: jest.fn(),
       updateComponentBinding: jest.fn(),
       rolloutRestartReleaseBinding: jest.fn(),
       createComponentRelease: jest.fn(),
@@ -1237,6 +1240,70 @@ describe('createRouter', () => {
         .send(endpointQuery);
 
       expect(response.status).toBe(400);
+    });
+
+    it('PUT /update-release-binding promotes the component Endpoints from the source environment', async () => {
+      services.environmentInfoService.updateReleaseBinding.mockResolvedValue({
+        metadata: { name: 'orders-staging' },
+      });
+      services.environmentInfoService.syncComponentEndpointBindings.mockResolvedValue(
+        { deployed: ['orders-api'], skipped: [] },
+      );
+      const component = {
+        componentName: 'orders',
+        projectName: 'store',
+        namespaceName: 'acme',
+      };
+
+      const response = await request(app)
+        .put('/update-release-binding')
+        .send({
+          ...component,
+          environment: 'staging',
+          releaseName: 'orders-abc',
+          sourceEnvironment: 'dev',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ metadata: { name: 'orders-staging' } });
+      expect(
+        services.environmentInfoService.syncComponentEndpointBindings,
+      ).toHaveBeenCalledWith(
+        { ...component, environment: 'staging', sourceEnvironment: 'dev' },
+        'mock-user-token',
+      );
+    });
+
+    it('DELETE /delete-release-binding removes the component Endpoints first', async () => {
+      const calls: string[] = [];
+      services.environmentInfoService.removeComponentEndpointBindings.mockImplementation(
+        async () => {
+          calls.push('endpoints');
+          return { removed: [], skipped: [] };
+        },
+      );
+      services.environmentInfoService.deleteReleaseBinding.mockImplementation(
+        async () => {
+          calls.push('component');
+          return [];
+        },
+      );
+      const body = {
+        componentName: 'orders',
+        projectName: 'store',
+        namespaceName: 'acme',
+        environment: 'dev',
+      };
+
+      const response = await request(app)
+        .delete('/delete-release-binding')
+        .send(body);
+
+      expect(response.status).toBe(200);
+      expect(calls).toEqual(['endpoints', 'component']);
+      expect(
+        services.environmentInfoService.removeComponentEndpointBindings,
+      ).toHaveBeenCalledWith(body, 'mock-user-token');
     });
 
     it('DELETE /delete-endpoint-release-binding forwards to the service', async () => {

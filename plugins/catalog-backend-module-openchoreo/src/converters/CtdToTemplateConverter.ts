@@ -1,6 +1,9 @@
 import { Entity } from '@backstage/catalog-model';
 import { JSONSchema7 } from 'json-schema';
-import { CHOREO_ANNOTATIONS } from '@openchoreo/backstage-plugin-common';
+import {
+  CHOREO_ANNOTATIONS,
+  type AllowedEndpointTypeEntry,
+} from '@openchoreo/backstage-plugin-common';
 
 /**
  * Namespace used for cluster-scoped resources such as ClusterWorkflows
@@ -20,6 +23,7 @@ export interface ComponentType {
     workloadType: string;
     allowedWorkflows?: Array<string | { kind?: string; name: string }>;
     allowedTraits?: Array<{ kind?: string; name: string }>;
+    allowedEndpoints?: AllowedEndpointTypeEntry[];
     tags?: string[];
     createdAt?: string;
   };
@@ -224,6 +228,7 @@ export class CtdToTemplateConverter {
               componentType.metadata.displayName ||
               this.formatTitle(componentType.metadata.name),
             allowedTraits: componentType.metadata.allowedTraits,
+            allowedEndpoints: componentType.metadata.allowedEndpoints,
           },
         },
       },
