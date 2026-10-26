@@ -5028,6 +5028,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+
   # =============================================================================
   # ClusterProjectType Endpoints
   # =============================================================================
@@ -6677,6 +6678,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+
   # =============================================================================
   # Deployment Pipeline Endpoints
   # =============================================================================
@@ -7567,6 +7569,7 @@ components:
         type: string
         example: analytics-shared-db-dev
 
+
     ClusterEndpointTypeNameParam:
       name: cetName
       in: path
@@ -7670,7 +7673,7 @@ components:
         Multiple requirements are comma-separated and ANDed together.
       schema:
         type: string
-        example: 'app=frontend,environment notin (staging,qa),tier!=backend,!deprecated'
+        example: "app=frontend,environment notin (staging,qa),tier!=backend,!deprecated"
 
     LimitParam:
       name: limit
@@ -7704,7 +7707,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            error: 'Invalid request: name is required'
+            error: "Invalid request: name is required"
             code: BAD_REQUEST
             details:
               - field: name
@@ -7717,7 +7720,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            error: 'Authentication required'
+            error: "Authentication required"
             code: UNAUTHORIZED
 
     Forbidden:
@@ -7727,7 +7730,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            error: 'You do not have permission to perform this operation'
+            error: "You do not have permission to perform this operation"
             code: FORBIDDEN
 
     NotFound:
@@ -7770,7 +7773,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            error: 'Internal server error'
+            error: "Internal server error"
             code: INTERNAL_ERROR
 
     NotImplemented:
@@ -7780,7 +7783,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            error: 'Secret API is disabled on this server'
+            error: "Secret API is disabled on this server"
             code: NOT_IMPLEMENTED
 
   # ===========================================================================
@@ -7880,12 +7883,12 @@ components:
           type: string
           format: date-time
           description: Creation timestamp
-          example: '2025-01-06T10:00:00Z'
+          example: "2025-01-06T10:00:00Z"
         deletionTimestamp:
           type: string
           format: date-time
           description: Timestamp when the resource was requested to be deleted
-          example: '2025-01-06T12:00:00Z'
+          example: "2025-01-06T12:00:00Z"
         deletionGracePeriodSeconds:
           type: integer
           format: int64
@@ -7908,8 +7911,8 @@ components:
         status:
           type: string
           description: Status of the condition
-          enum: ['True', 'False', 'Unknown']
-          example: 'True'
+          enum: ["True", "False", "Unknown"]
+          example: "True"
         observedGeneration:
           type: integer
           format: int64
@@ -7918,7 +7921,7 @@ components:
           type: string
           format: date-time
           description: Last time the condition transitioned
-          example: '2025-01-06T10:00:05Z'
+          example: "2025-01-06T10:00:05Z"
         reason:
           type: string
           description: Machine-readable reason for the condition
@@ -7926,7 +7929,7 @@ components:
         message:
           type: string
           description: Human-readable message
-          example: 'Project is ready'
+          example: "Project is ready"
 
     # -------------------------------------------------------------------------
     # Platform Metadata
@@ -7995,7 +7998,7 @@ components:
         buildTime:
           type: string
           description: Build timestamp
-          example: '2025-01-06T10:00:00Z'
+          example: "2025-01-06T10:00:00Z"
         goOS:
           type: string
           description: Target operating system
@@ -8090,7 +8093,7 @@ components:
           minItems: 1
           items:
             type: string
-          example: ['openid', 'profile', 'email']
+          example: ["openid", "profile", "email"]
 
     # -------------------------------------------------------------------------
     # User Type Configuration
@@ -8167,7 +8170,7 @@ components:
             Opaque cursor for fetching the next page. Pass this value as the
             `cursor` query parameter in the next request. Absent when there
             are no more items.
-          example: 'eyJ2IjoibWV0YS5rOHMuaW8vdjEiLCJydiI6MzQ0N30='
+          example: "eyJ2IjoibWV0YS5rOHMuaW8vdjEiLCJydiI6MzQ0N30="
         remainingCount:
           type: integer
           format: int64
@@ -8365,6 +8368,7 @@ components:
         pagination:
           $ref: '#/components/schemas/Pagination'
 
+
     # -------------------------------------------------------------------------
     # Components
     # -------------------------------------------------------------------------
@@ -8412,7 +8416,7 @@ components:
               default: ComponentType
             name:
               type: string
-              description: 'Component type reference in format: {workloadType}/{componentTypeName}'
+              description: "Component type reference in format: {workloadType}/{componentTypeName}"
               example: deployment/go-service
               pattern: '^(deployment|statefulset|cronjob|job|proxy)/[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
         autoDeploy:
@@ -8514,12 +8518,12 @@ components:
           maxLength: 1024
         type:
           type: string
-          description: 'DEPRECATED: Use componentType instead. Legacy component type field.'
+          description: "DEPRECATED: Use componentType instead. Legacy component type field."
           example: service/go-service
           deprecated: true
         componentType:
           type: string
-          description: 'Component type reference (format: {workloadType}/{componentTypeName})'
+          description: "Component type reference (format: {workloadType}/{componentTypeName})"
           example: service/go-service
         autoDeploy:
           type: boolean
@@ -9455,9 +9459,20 @@ components:
                 type: string
                 description: Name of the ClusterTrait resource
                 minLength: 1
+        allowedEndpoints:
+          type: array
+          description: >-
+            Declares which ClusterEndpointType exposes a workload endpoint of a Component of this type,
+            keyed on the endpoint's protocol and requested visibility. Only ClusterEndpointType references
+            are allowed. Clients creating a Component generate one Endpoint per workload endpoint from the
+            default entry matching it. If empty or omitted, no Endpoints are generated and the type keeps
+            rendering its own routes. At most one default entry may match any (protocol, visibility) pair.
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/AllowedEndpointType'
         validations:
           type: array
-          description: 'CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive).'
+          description: "CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive)."
           items:
             $ref: '#/components/schemas/ValidationRule'
         preRenderValidations:
@@ -9490,11 +9505,11 @@ components:
                 default: dataplane
               includeWhen:
                 type: string
-                description: 'CEL expression determining if this resource should be created'
+                description: "CEL expression determining if this resource should be created"
                 pattern: '^\$\{[\s\S]+\}\s*$'
               forEach:
                 type: string
-                description: 'CEL expression for generating multiple resources from a list'
+                description: "CEL expression for generating multiple resources from a list"
                 pattern: '^\$\{[\s\S]+\}\s*$'
               var:
                 type: string
@@ -9562,7 +9577,7 @@ components:
           $ref: '#/components/schemas/SchemaSection'
         validations:
           type: array
-          description: 'CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive).'
+          description: "CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive)."
           items:
             $ref: '#/components/schemas/ValidationRule'
         preRenderValidations:
@@ -9590,10 +9605,10 @@ components:
                 default: dataplane
               includeWhen:
                 type: string
-                description: 'CEL expression determining if this resource should be created'
+                description: "CEL expression determining if this resource should be created"
               forEach:
                 type: string
-                description: 'CEL expression for generating multiple resources from a list'
+                description: "CEL expression for generating multiple resources from a list"
               var:
                 type: string
                 description: Loop variable name when using forEach
@@ -9612,7 +9627,7 @@ components:
             properties:
               forEach:
                 type: string
-                description: 'CEL expression for repeating this patch'
+                description: "CEL expression for repeating this patch"
               var:
                 type: string
                 description: Loop variable name when using forEach
@@ -9635,7 +9650,7 @@ components:
                     description: Resource type to patch
                   where:
                     type: string
-                    description: 'CEL expression to filter which resources to patch'
+                    description: "CEL expression to filter which resources to patch"
               targetPlane:
                 type: string
                 description: Target plane for this patch
@@ -9774,9 +9789,20 @@ components:
               name:
                 type: string
                 description: Name of the Trait or ClusterTrait resource
+        allowedEndpoints:
+          type: array
+          description: >-
+            Declares which EndpointType or ClusterEndpointType exposes a workload endpoint of a Component
+            of this type, keyed on the endpoint's protocol and requested visibility. Clients creating a
+            Component generate one Endpoint per workload endpoint from the default entry matching it. If
+            empty or omitted, no Endpoints are generated and the type keeps rendering its own routes. At
+            most one default entry may match any (protocol, visibility) pair.
+          maxItems: 32
+          items:
+            $ref: '#/components/schemas/AllowedEndpointType'
         validations:
           type: array
-          description: 'CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive).'
+          description: "CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive)."
           items:
             $ref: '#/components/schemas/ValidationRule'
         preRenderValidations:
@@ -9809,10 +9835,10 @@ components:
                 default: dataplane
               includeWhen:
                 type: string
-                description: 'CEL expression determining if this resource should be created'
+                description: "CEL expression determining if this resource should be created"
               forEach:
                 type: string
-                description: 'CEL expression for generating multiple resources from a list'
+                description: "CEL expression for generating multiple resources from a list"
               var:
                 type: string
                 description: Loop variable name when using forEach
@@ -9879,7 +9905,7 @@ components:
           $ref: '#/components/schemas/SchemaSection'
         validations:
           type: array
-          description: 'CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive).'
+          description: "CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive)."
           items:
             $ref: '#/components/schemas/ValidationRule'
         preRenderValidations:
@@ -9907,10 +9933,10 @@ components:
                 default: dataplane
               includeWhen:
                 type: string
-                description: 'CEL expression determining if this resource should be created'
+                description: "CEL expression determining if this resource should be created"
               forEach:
                 type: string
-                description: 'CEL expression for generating multiple resources from a list'
+                description: "CEL expression for generating multiple resources from a list"
               var:
                 type: string
                 description: Loop variable name when using forEach
@@ -9929,7 +9955,7 @@ components:
             properties:
               forEach:
                 type: string
-                description: 'CEL expression for repeating this patch'
+                description: "CEL expression for repeating this patch"
               var:
                 type: string
                 description: Loop variable name when using forEach
@@ -9952,7 +9978,7 @@ components:
                     description: Resource type to patch
                   where:
                     type: string
-                    description: 'CEL expression to filter which resources to patch'
+                    description: "CEL expression to filter which resources to patch"
               targetPlane:
                 type: string
                 description: Target plane for this patch
@@ -9995,7 +10021,7 @@ components:
       properties:
         forEach:
           type: string
-          description: 'CEL expression for repeating this remove'
+          description: "CEL expression for repeating this remove"
         var:
           type: string
           description: Loop variable name when using forEach
@@ -10018,7 +10044,7 @@ components:
               description: Resource type to remove
             where:
               type: string
-              description: 'CEL expression to filter which resources to remove'
+              description: "CEL expression to filter which resources to remove"
         targetPlane:
           type: string
           description: Target plane for this remove
@@ -10034,7 +10060,7 @@ components:
       properties:
         rule:
           type: string
-          description: 'CEL expression wrapped in ${...} that must evaluate to true'
+          description: "CEL expression wrapped in ${...} that must evaluate to true"
           pattern: '^\$\{[\s\S]+\}\s*$'
         message:
           type: string
@@ -10056,11 +10082,11 @@ components:
         forEach:
           type: string
           pattern: '^\$\{[\s\S]+\}\s*$'
-          description: 'Optional CEL expression yielding a list; the validation is repeated per item with the loop variable bound. Requires var.'
+          description: "Optional CEL expression yielding a list; the validation is repeated per item with the loop variable bound. Requires var."
         var:
           type: string
           pattern: '^[a-zA-Z_][a-zA-Z0-9_]*$'
-          description: 'Loop variable name for forEach iterations; available in target.where and rule. Required when forEach is set.'
+          description: "Loop variable name for forEach iterations; available in target.where and rule. Required when forEach is set."
         target:
           type: object
           description: Rendered resources this validation applies to
@@ -10083,7 +10109,7 @@ components:
             where:
               type: string
               pattern: '^\$\{[\s\S]+\}\s*$'
-              description: 'CEL expression to filter which resources to select'
+              description: "CEL expression to filter which resources to select"
             mustMatch:
               type: boolean
               description: Require at least one rendered resource to match this target; when true and none match, the validation fails
@@ -10092,11 +10118,11 @@ components:
           type: string
           enum: [dataplane, observabilityplane]
           default: dataplane
-          description: 'Plane to scope selection to; without it a rule matches resources of the same GVK across every plane'
+          description: "Plane to scope selection to; without it a rule matches resources of the same GVK across every plane"
         rule:
           type: string
           pattern: '^\$\{[\s\S]+\}\s*$'
-          description: 'CEL expression wrapped in ${...}, evaluated with resource bound to each match; must evaluate to true'
+          description: "CEL expression wrapped in ${...}, evaluated with resource bound to each match; must evaluate to true"
         message:
           type: string
           minLength: 1
@@ -10595,12 +10621,12 @@ components:
           type: string
           format: date-time
           description: When the step started
-          example: '2025-01-06T10:00:00Z'
+          example: "2025-01-06T10:00:00Z"
         finishedAt:
           type: string
           format: date-time
           description: When the step finished
-          example: '2025-01-06T10:01:00Z'
+          example: "2025-01-06T10:01:00Z"
 
     WorkflowRunLogEntry:
       type: object
@@ -10612,11 +10638,11 @@ components:
           type: string
           format: date-time
           description: Log entry timestamp
-          example: '2025-01-06T10:00:00Z'
+          example: "2025-01-06T10:00:00Z"
         log:
           type: string
           description: Log message
-          example: 'Step 1: Cloning repository...'
+          example: "Step 1: Cloning repository..."
 
     WorkflowRunEventEntry:
       type: object
@@ -10631,7 +10657,7 @@ components:
           type: string
           format: date-time
           description: Event timestamp
-          example: '2025-01-06T10:00:00Z'
+          example: "2025-01-06T10:00:00Z"
         type:
           type: string
           description: Event type
@@ -10643,7 +10669,7 @@ components:
         message:
           type: string
           description: Human-readable description of the event
-          example: 'Container main started'
+          example: "Container main started"
 
     CreateWorkflowRunRequest:
       type: object
@@ -10661,8 +10687,8 @@ components:
           description: User-defined workflow parameters
           additionalProperties: true
           example:
-            database_url: 'postgresql://localhost:5432/mydb'
-            migration_version: 'v2.1.0'
+            database_url: "postgresql://localhost:5432/mydb"
+            migration_version: "v2.1.0"
 
     # -------------------------------------------------------------------------
     # Component Extended Schemas
@@ -11346,7 +11372,7 @@ components:
         value:
           type: string
           description: Literal or ${...} CEL expression. Use only for non-sensitive data; the resolved value transits to the control plane.
-          example: '${applied.claim.status.host}'
+          example: "${applied.claim.status.host}"
         secretKeyRef:
           $ref: '#/components/schemas/ResourceSecretKeyRef'
         configMapKeyRef:
@@ -11371,7 +11397,7 @@ components:
         includeWhen:
           type: string
           description: Optional ${...}-wrapped CEL expression. When false, the entry is skipped entirely.
-          example: '${parameters.tlsEnabled}'
+          example: "${parameters.tlsEnabled}"
         template:
           type: object
           description: Kubernetes resource body with ${...} CEL substitutions.
@@ -11491,11 +11517,11 @@ components:
                 default: dataplane
               includeWhen:
                 type: string
-                description: 'CEL expression determining if this resource should be created.'
+                description: "CEL expression determining if this resource should be created."
                 pattern: '^\$\{[\s\S]+\}\s*$'
               forEach:
                 type: string
-                description: 'CEL expression for generating multiple resources from a list.'
+                description: "CEL expression for generating multiple resources from a list."
                 pattern: '^\$\{[\s\S]+\}\s*$'
               var:
                 type: string
@@ -12158,6 +12184,7 @@ components:
           items:
             $ref: '#/components/schemas/ResolvedResourceOutput'
 
+
     # -------------------------------------------------------------------------
     # EndpointTypes / ClusterEndpointTypes
     # -------------------------------------------------------------------------
@@ -12176,6 +12203,8 @@ components:
           description: CEL-based validation rules evaluated before rendering.
           items:
             $ref: '#/components/schemas/ValidationRule'
+        urls:
+          $ref: '#/components/schemas/EndpointTypeURLs'
         resources:
           type: array
           description: |
@@ -12200,11 +12229,11 @@ components:
                 default: dataplane
               includeWhen:
                 type: string
-                description: 'CEL expression determining if this resource should be created.'
+                description: "CEL expression determining if this resource should be created."
                 pattern: '^\$\{[\s\S]+\}\s*$'
               forEach:
                 type: string
-                description: 'CEL expression for generating multiple resources from a list.'
+                description: "CEL expression for generating multiple resources from a list."
                 pattern: '^\$\{[\s\S]+\}\s*$'
               var:
                 type: string
@@ -12314,6 +12343,38 @@ components:
           pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
           example: http-gateway
 
+    AllowedEndpointType:
+      type: object
+      description: Maps workload endpoints of a given protocol and visibility to the EndpointType that exposes them.
+      required:
+        - protocols
+        - visibilities
+        - ref
+      properties:
+        name:
+          type: string
+          description: Optional alias a workload endpoint can name to pick this entry when several match.
+          maxLength: 63
+          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+        protocols:
+          type: array
+          description: Workload endpoint protocols this entry applies to (HTTP, gRPC, GraphQL, Websocket, TCP, UDP).
+          minItems: 1
+          items:
+            type: string
+        visibilities:
+          type: array
+          description: Requested visibilities this entry applies to. Project visibility is implicit and not accepted.
+          minItems: 1
+          items:
+            type: string
+            enum: [namespace, internal, external]
+        ref:
+          $ref: '#/components/schemas/EndpointTypeRef'
+        default:
+          type: boolean
+          description: Marks this entry as the automatic choice for its protocols and visibilities.
+
     # -------------------------------------------------------------------------
     # Endpoints
     # -------------------------------------------------------------------------
@@ -12404,6 +12465,12 @@ components:
               type: string
             content:
               type: string
+        autoDeploy:
+          type: boolean
+          description: >-
+            Deploys the Endpoint to the first environment of its project's deployment pipeline. The controller
+            creates that environment's EndpointReleaseBinding and advances it to each new EndpointRelease; later
+            environments are promoted explicitly. Defaults to false.
         parameters:
           type: object
           description: Values for the parameter schema declared on the referenced (Cluster)EndpointType. Validated by the controller.
@@ -12684,6 +12751,151 @@ components:
           description: Per-environment values for EndpointType.spec.environmentConfigs.
           additionalProperties: true
 
+    EndpointTypeURLs:
+      type: object
+      description: |
+        Per-visibility URL templates. Each entry is optional; a type declares only the visibilities it
+        serves. Fields are literals or ${...} CEL templates evaluated at render time against the same
+        context as resources; nothing is read back from the data plane.
+      properties:
+        project:
+          $ref: '#/components/schemas/EndpointURLTemplate'
+        namespace:
+          $ref: '#/components/schemas/EndpointURLTemplate'
+        internal:
+          $ref: '#/components/schemas/EndpointURLTemplate'
+        external:
+          $ref: '#/components/schemas/EndpointURLTemplate'
+
+    EndpointURLTemplate:
+      type: object
+      description: |
+        Template for one URL and the security clients must satisfy to call it. Resolved only when the
+        Endpoint requests the visibility (project is implicit and always applies) and includeWhen passes.
+      required:
+        - scheme
+        - host
+      properties:
+        includeWhen:
+          type: string
+          description: Optional CEL expression, ANDed with the visibility gate, deciding whether the URL is resolved.
+          pattern: '^\$\{[\s\S]+\}\s*$'
+          example: '${gateway.?ingress.?external.?https.hasValue()}'
+        scheme:
+          type: string
+          description: URL scheme; must resolve to one of http, https, ws, wss, grpc, grpcs, tcp, tls.
+          minLength: 1
+          example: https
+        host:
+          type: string
+          description: Hostname or IP address clients connect to.
+          minLength: 1
+          example: '${metadata.endpointName}.${gateway.ingress.external.https.host}'
+        port:
+          type: string
+          description: Literal or CEL template resolving to an integer between 1 and 65535. Omit for the scheme default.
+          example: '${gateway.ingress.external.https.port}'
+        path:
+          type: string
+          description: URL path the endpoint is served under.
+          example: '${parameters.pathPrefix}'
+        security:
+          $ref: '#/components/schemas/EndpointSecurityTemplate'
+
+    EndpointSecurityTemplate:
+      type: object
+      description: Template for the security enforced at a URL, as declared by the EndpointType.
+      required:
+        - scheme
+      properties:
+        scheme:
+          type: string
+          description: Must resolve to one of none, apiKey, oauth2, basicAuth.
+          minLength: 1
+          example: apiKey
+        apiKey:
+          type: object
+          description: Where to send the key. Required when scheme resolves to apiKey; ignored when a templated scheme resolves to anything else.
+          required:
+            - in
+            - name
+          properties:
+            in:
+              type: string
+              description: Must resolve to header or query.
+              minLength: 1
+              example: header
+            name:
+              type: string
+              description: Header or query parameter name carrying the key.
+              minLength: 1
+              example: api-key
+
+    EndpointReleaseBindingURLs:
+      type: object
+      description: The URL resolved for each visibility in the binding's environment.
+      properties:
+        project:
+          $ref: '#/components/schemas/ResolvedEndpointURL'
+        namespace:
+          $ref: '#/components/schemas/ResolvedEndpointURL'
+        internal:
+          $ref: '#/components/schemas/ResolvedEndpointURL'
+        external:
+          $ref: '#/components/schemas/ResolvedEndpointURL'
+
+    ResolvedEndpointURL:
+      type: object
+      description: One resolved URL with the security clients must satisfy to call it.
+      required:
+        - host
+      properties:
+        scheme:
+          type: string
+          example: https
+        host:
+          type: string
+          example: greeter-api-dev-shop-org-1a2b3c4d.example.com
+        port:
+          type: integer
+          format: int32
+          example: 443
+        path:
+          type: string
+          example: /greeter
+        security:
+          $ref: '#/components/schemas/EndpointSecurity'
+
+    EndpointSecurity:
+      type: object
+      description: Security enforced at a URL, as declared by the EndpointType.
+      required:
+        - scheme
+      properties:
+        scheme:
+          type: string
+          enum: [none, apiKey, oauth2, basicAuth]
+          x-enum-varnames:
+            - EndpointSecuritySchemeNone
+            - EndpointSecuritySchemeApiKey
+            - EndpointSecuritySchemeOauth2
+            - EndpointSecuritySchemeBasicAuth
+        apiKey:
+          type: object
+          required:
+            - in
+            - name
+          properties:
+            in:
+              type: string
+              enum: [header, query]
+              x-enum-varnames:
+                - EndpointApiKeyInHeader
+                - EndpointApiKeyInQuery
+            name:
+              type: string
+              example: api-key
+
     ResolvedEndpointBackend:
       type: object
       description: Resolution of one backendRef in the binding's environment, populated by the binding controller.
@@ -12724,7 +12936,7 @@ components:
       properties:
         conditions:
           type: array
-          description: Latest available observations of the binding's state. Includes BackendsResolved, Synced, ResourcesReady, Ready (aggregate), and Finalizing.
+          description: Latest available observations of the binding's state. Includes BackendsResolved, Synced, ResourcesReady, URLsResolved, Ready (aggregate), and Finalizing.
           items:
             $ref: '#/components/schemas/Condition'
         backends:
@@ -12732,6 +12944,8 @@ components:
           description: Resolution of each backendRef in this binding's environment.
           items:
             $ref: '#/components/schemas/ResolvedEndpointBackend'
+        urls:
+          $ref: '#/components/schemas/EndpointReleaseBindingURLs'
 
     # -------------------------------------------------------------------------
     # RenderedRelease
@@ -13079,15 +13293,15 @@ components:
           type: string
           description: Timestamp of the log entry in RFC3339 format
           format: date-time
-          example: '2024-01-10T12:34:56.789Z'
+          example: "2024-01-10T12:34:56.789Z"
         log:
           type: string
           description: Log message content
-          example: 'Starting application server on port 8080'
+          example: "Starting application server on port 8080"
         container:
           type: string
           description: Name of the container that produced this log entry
-          example: 'main'
+          example: "main"
 
     ResourcePodLogsResponse:
       type: object
@@ -13114,7 +13328,7 @@ components:
             container named `main`, or to the only container if the pod has exactly one.
           items:
             type: string
-          example: ['--mode', 'backfill', '--date', '2026-08-25']
+          example: ["--mode", "backfill", "--date", "2026-08-25"]
 
     CronJobTriggerResponse:
       type: object
@@ -13127,15 +13341,15 @@ components:
         jobName:
           type: string
           description: Name of the Job that was created from the CronJob's jobTemplate
-          example: 'my-task-1721563200'
+          example: "my-task-1721563200"
         namespace:
           type: string
           description: Data plane namespace where the Job was created
-          example: 'dp-my-project-my-component-dev'
+          example: "dp-my-project-my-component-dev"
         cronJobName:
           type: string
           description: Name of the CronJob the Job was created from
-          example: 'my-task'
+          example: "my-task"
 
     K8sResourceTreeResponse:
       type: object
@@ -13249,7 +13463,7 @@ components:
           description: List of actions this role permits
           items:
             type: string
-          example: ['project:create', 'project:view', 'project:delete']
+          example: ["project:create", "project:view", "project:delete"]
         description:
           type: string
           description: Human-readable description of the role
@@ -13303,7 +13517,7 @@ components:
           description: List of actions this role permits
           items:
             type: string
-          example: ['component:create', 'component:view']
+          example: ["component:create", "component:view"]
         description:
           type: string
           description: Human-readable description of the role
@@ -13506,7 +13720,7 @@ components:
           minItems: 1
           items:
             type: string
-          example: ['releasebinding:create', 'releasebinding:*']
+          example: ["releasebinding:create", "releasebinding:*"]
         expression:
           type: string
           description: >
@@ -13669,7 +13883,7 @@ components:
           description: Entitlement values
           items:
             type: string
-          example: ['admin-group', 'dev-group']
+          example: ["admin-group", "dev-group"]
 
     Resource:
       type: object
@@ -13727,6 +13941,7 @@ components:
               type: string
               description: Reason for the decision
               example: User has admin role
+
 
     ConditionAttribute:
       type: object
@@ -13798,11 +14013,7 @@ components:
           items:
             type: string
           minItems: 1
-          example:
-            [
-              'resource.environment == "prod"',
-              'resource.environment == "staging"',
-            ]
+          example: ['resource.environment == "prod"', 'resource.environment == "staging"']
 
     CapabilityResource:
       type: object
@@ -13830,7 +14041,8 @@ components:
           type: string
           format: date-time
           description: Time when capabilities were evaluated
-          example: '2025-01-06T10:00:00Z'
+          example: "2025-01-06T10:00:00Z"
+
 
     # -------------------------------------------------------------------------
     # Webhook Schemas
@@ -13856,7 +14068,7 @@ components:
           description: List of components affected by this webhook
           items:
             type: string
-          example: ['api-service', 'web-app']
+          example: ["api-service", "web-app"]
         triggeredBuilds:
           type: integer
           description: Number of builds triggered
@@ -13947,7 +14159,7 @@ components:
           type: string
           format: date-time
           description: When the secret reference was last processed
-          example: '2025-01-06T11:00:00Z'
+          example: "2025-01-06T11:00:00Z"
         secretStores:
           type: array
           description: Secret stores using this reference
@@ -14617,7 +14829,7 @@ components:
         subject:
           type: string
           description: Email subject line template using CEL expressions
-          example: '[${alert.severity}] - ${alert.name} Triggered'
+          example: "[${alert.severity}] - ${alert.name} Triggered"
         body:
           type: string
           description: Email body template using CEL expressions
