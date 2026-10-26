@@ -4150,6 +4150,8 @@ export interface components {
         /** @description Name of the ClusterTrait resource */
         name: string;
       }[];
+      /** @description Declares which ClusterEndpointType exposes a workload endpoint of a Component of this type, keyed on the endpoint's protocol and requested visibility. Only ClusterEndpointType references are allowed. Clients creating a Component generate one Endpoint per workload endpoint from the default entry matching it. If empty or omitted, no Endpoints are generated and the type keeps rendering its own routes. At most one default entry may match any (protocol, visibility) pair. */
+      allowedEndpoints?: components['schemas']['AllowedEndpointType'][];
       /** @description CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive). */
       validations?: components['schemas']['ValidationRule'][];
       /** @description CEL-based validation rules evaluated before rendering; replaces the deprecated validations field */
@@ -4344,6 +4346,8 @@ export interface components {
         /** @description Name of the Trait or ClusterTrait resource */
         name: string;
       }[];
+      /** @description Declares which EndpointType or ClusterEndpointType exposes a workload endpoint of a Component of this type, keyed on the endpoint's protocol and requested visibility. Clients creating a Component generate one Endpoint per workload endpoint from the default entry matching it. If empty or omitted, no Endpoints are generated and the type keeps rendering its own routes. At most one default entry may match any (protocol, visibility) pair. */
+      allowedEndpoints?: components['schemas']['AllowedEndpointType'][];
       /** @description CEL-based validation rules evaluated before rendering. Deprecated: use preRenderValidations (mutually exclusive). */
       validations?: components['schemas']['ValidationRule'][];
       /** @description CEL-based validation rules evaluated before rendering; replaces the deprecated validations field */
@@ -5933,6 +5937,7 @@ export interface components {
       environmentConfigs?: components['schemas']['SchemaSection'];
       /** @description CEL-based validation rules evaluated before rendering. */
       validations?: components['schemas']['ValidationRule'][];
+      urls?: components['schemas']['EndpointTypeURLs'];
       /**
        * @description Routing manifests (e.g. HTTPRoute, Ingress) emitted on the data plane for each
        *     EndpointReleaseBinding. Templates see metadata.*, parameters.*,
@@ -6024,6 +6029,18 @@ export interface components {
        */
       name: string;
     };
+    /** @description Maps workload endpoints of a given protocol and visibility to the EndpointType that exposes them. */
+    AllowedEndpointType: {
+      /** @description Optional alias a workload endpoint can name to pick this entry when several match. */
+      name?: string;
+      /** @description Workload endpoint protocols this entry applies to (HTTP, gRPC, GraphQL, Websocket, TCP, UDP). */
+      protocols: string[];
+      /** @description Requested visibilities this entry applies to. Project visibility is implicit and not accepted. */
+      visibilities: ('namespace' | 'internal' | 'external')[];
+      ref: components['schemas']['EndpointTypeRef'];
+      /** @description Marks this entry as the automatic choice for its protocols and visibilities. */
+      default?: boolean;
+    };
     /** @description Paginated list of endpoints */
     EndpointList: {
       items: components['schemas']['Endpoint'][];
@@ -6069,6 +6086,8 @@ export interface components {
         type?: string;
         content?: string;
       };
+      /** @description Deploys the Endpoint to the first environment of its project's deployment pipeline. The controller creates that environment's EndpointReleaseBinding and advances it to each new EndpointRelease; later environments are promoted explicitly. Defaults to false. */
+      autoDeploy?: boolean;
       /** @description Values for the parameter schema declared on the referenced (Cluster)EndpointType. Validated by the controller. */
       parameters?: {
         [key: string]: unknown;
@@ -6259,6 +6278,103 @@ export interface components {
         [key: string]: unknown;
       };
     };
+    /**
+     * @description Per-visibility URL templates. Each entry is optional; a type declares only the visibilities it
+     *     serves. Fields are literals or ${...} CEL templates evaluated at render time against the same
+     *     context as resources; nothing is read back from the data plane.
+     */
+    EndpointTypeURLs: {
+      project?: components['schemas']['EndpointURLTemplate'];
+      namespace?: components['schemas']['EndpointURLTemplate'];
+      internal?: components['schemas']['EndpointURLTemplate'];
+      external?: components['schemas']['EndpointURLTemplate'];
+    };
+    /**
+     * @description Template for one URL and the security clients must satisfy to call it. Resolved only when the
+     *     Endpoint requests the visibility (project is implicit and always applies) and includeWhen passes.
+     */
+    EndpointURLTemplate: {
+      /**
+       * @description Optional CEL expression, ANDed with the visibility gate, deciding whether the URL is resolved.
+       * @example ${gateway.?ingress.?external.?https.hasValue()}
+       */
+      includeWhen?: string;
+      /**
+       * @description URL scheme; must resolve to one of http, https, ws, wss, grpc, grpcs, tcp, tls.
+       * @example https
+       */
+      scheme: string;
+      /**
+       * @description Hostname or IP address clients connect to.
+       * @example ${metadata.endpointName}.${gateway.ingress.external.https.host}
+       */
+      host: string;
+      /**
+       * @description Literal or CEL template resolving to an integer between 1 and 65535. Omit for the scheme default.
+       * @example ${gateway.ingress.external.https.port}
+       */
+      port?: string;
+      /**
+       * @description URL path the endpoint is served under.
+       * @example ${parameters.pathPrefix}
+       */
+      path?: string;
+      security?: components['schemas']['EndpointSecurityTemplate'];
+    };
+    /** @description Template for the security enforced at a URL, as declared by the EndpointType. */
+    EndpointSecurityTemplate: {
+      /**
+       * @description Must resolve to one of none, apiKey, oauth2, basicAuth.
+       * @example apiKey
+       */
+      scheme: string;
+      /** @description Where to send the key. Required when scheme resolves to apiKey; ignored when a templated scheme resolves to anything else. */
+      apiKey?: {
+        /**
+         * @description Must resolve to header or query.
+         * @example header
+         */
+        in: string;
+        /**
+         * @description Header or query parameter name carrying the key.
+         * @example api-key
+         */
+        name: string;
+      };
+    };
+    /** @description The URL resolved for each visibility in the binding's environment. */
+    EndpointReleaseBindingURLs: {
+      project?: components['schemas']['ResolvedEndpointURL'];
+      namespace?: components['schemas']['ResolvedEndpointURL'];
+      internal?: components['schemas']['ResolvedEndpointURL'];
+      external?: components['schemas']['ResolvedEndpointURL'];
+    };
+    /** @description One resolved URL with the security clients must satisfy to call it. */
+    ResolvedEndpointURL: {
+      /** @example https */
+      scheme?: string;
+      /** @example greeter-api-dev-shop-org-1a2b3c4d.example.com */
+      host: string;
+      /**
+       * Format: int32
+       * @example 443
+       */
+      port?: number;
+      /** @example /greeter */
+      path?: string;
+      security?: components['schemas']['EndpointSecurity'];
+    };
+    /** @description Security enforced at a URL, as declared by the EndpointType. */
+    EndpointSecurity: {
+      /** @enum {string} */
+      scheme: 'none' | 'apiKey' | 'oauth2' | 'basicAuth';
+      apiKey?: {
+        /** @enum {string} */
+        in: 'header' | 'query';
+        /** @example api-key */
+        name: string;
+      };
+    };
     /** @description Resolution of one backendRef in the binding's environment, populated by the binding controller. */
     ResolvedEndpointBackend: {
       /**
@@ -6290,10 +6406,11 @@ export interface components {
     };
     /** @description Observed state of an EndpointReleaseBinding. */
     EndpointReleaseBindingStatus: {
-      /** @description Latest available observations of the binding's state. Includes BackendsResolved, Synced, ResourcesReady, Ready (aggregate), and Finalizing. */
+      /** @description Latest available observations of the binding's state. Includes BackendsResolved, Synced, ResourcesReady, URLsResolved, Ready (aggregate), and Finalizing. */
       conditions?: components['schemas']['Condition'][];
       /** @description Resolution of each backendRef in this binding's environment. */
       backends?: components['schemas']['ResolvedEndpointBackend'][];
+      urls?: components['schemas']['EndpointReleaseBindingURLs'];
     };
     /**
      * @description RenderedRelease resource.

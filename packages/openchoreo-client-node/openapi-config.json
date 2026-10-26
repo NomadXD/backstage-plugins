@@ -19,7 +19,7 @@
   ],
   "versionField": "openChoreoVersion",
   "versionFile": "src/version.ts",
-  "lastSyncCommit": "7bb3caca",
-  "lastSyncDate": "2026-10-19T00:00:00+05:30",
-  "lastSyncDescription": "feat(occ): add CLI commands for the Endpoint family (openchoreo feat/endpoints, unpushed)"
+  "lastSyncCommit": "0995c1a1",
+  "lastSyncDate": "2026-10-26T00:00:00+05:30",
+  "lastSyncDescription": "feat(api): resolve per-visibility URLs for Endpoints (openchoreo feat/endpoints)"
 }
