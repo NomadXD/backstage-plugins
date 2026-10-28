@@ -1279,19 +1279,15 @@ export const WorkloadDetailsField = ({
             editBuffer={endpointEditBuffer}
             onRemoveEndpoint={handleRemoveEndpoint}
             onAddEndpoint={handleAddEndpoint}
-            renderDetails={
-              allowedEndpoints.length > 0
-                ? (name, endpoint) => (
-                    <EndpointExposure
-                      endpoint={endpoint}
-                      allowedEndpoints={allowedEndpoints}
-                      choice={endpointExposures[name]}
-                      schemas={endpointTypeSchemas}
-                      onChange={choice => handleExposureChange(name, choice)}
-                    />
-                  )
-                : undefined
-            }
+            renderDetails={(name, endpoint) => (
+              <EndpointExposure
+                endpoint={endpoint}
+                allowedEndpoints={allowedEndpoints}
+                choice={endpointExposures[name]}
+                schemas={endpointTypeSchemas}
+                onChange={choice => handleExposureChange(name, choice)}
+              />
+            )}
           />
         </>
       )}

@@ -1,7 +1,12 @@
 import {
+  NO_ENDPOINT,
+  endpointTypeKey,
   exposableVisibilities,
+  parseEndpointTypeKey,
+  resolveEndpointType,
+  type AllowedEndpointTypeEntry,
   type ComponentEndpointSummary,
-  type EndpointTypeKind,
+  type EndpointExposures,
   type ExposableEndpoint,
 } from '@openchoreo/backstage-plugin-common';
 import {
@@ -10,206 +15,220 @@ import {
 } from '@openchoreo/backstage-plugin-react';
 
 /**
- * A component's own Endpoint as staged on the configure page. Edits stay
- * local until the page is saved; `original` is what the Endpoint is on the
- * server, absent for one added on the page.
+ * The calls that save a component's Endpoints from its configure page. Each
+ * workload endpoint is exposed through at most one Endpoint, of the type
+ * chosen in its row; the Endpoint carries the row's visibilities beyond
+ * project. A changed type replaces the Endpoint, since its type is immutable.
  */
-export interface EndpointDraft {
-  /** The Endpoint's name, or a local key for one not created yet. */
-  key: string;
-  original?: ComponentEndpointSummary;
-  workloadEndpoint: string;
-  typeKind: EndpointTypeKind;
-  typeName: string;
-  visibility: string[];
-  parameters: Record<string, unknown>;
-  deleted: boolean;
-}
-
-/**
- * Why a staged Endpoint is deleted on save: the developer deleted it, or the
- * workload endpoint it exposes is gone or no longer has a visibility it
- * serves.
- */
-export type EndpointDeleteReason =
-  | 'deleted'
-  | 'workloadEndpointRemoved'
-  | 'notExposed';
-
-/** How a staged Endpoint relates to the workload as it is now edited. */
-export interface EndpointDraftStatus {
-  /** The visibilities that will be saved. */
-  visibility: string[];
-  /** Staged visibilities the workload endpoint no longer has. */
-  dropped: string[];
-  deleteReason?: EndpointDeleteReason;
-}
-
 export type EndpointChange =
-  | { op: 'create'; draft: EndpointDraft; visibility: string[] }
+  | {
+      op: 'create';
+      workloadEndpoint: string;
+      typeKey: string;
+      visibility: string[];
+      parameters: Record<string, unknown>;
+    }
   | {
       op: 'update';
-      draft: EndpointDraft & { original: ComponentEndpointSummary };
+      original: ComponentEndpointSummary;
+      workloadEndpoint: string;
       visibility: string[];
+      parameters: Record<string, unknown>;
     }
   | {
       op: 'delete';
-      draft: EndpointDraft & { original: ComponentEndpointSummary };
-      reason: EndpointDeleteReason;
+      original: ComponentEndpointSummary;
+      reason: 'notExposed' | 'workloadEndpointRemoved' | 'typeChanged';
     };
 
-export function draftFromSummary(
-  summary: ComponentEndpointSummary,
-): EndpointDraft {
-  return {
-    key: summary.name,
-    original: summary,
-    workloadEndpoint: summary.workloadEndpoint,
-    typeKind: summary.typeKind,
-    typeName: summary.typeName,
-    visibility: [...summary.visibility],
-    parameters: summary.parameters,
-    deleted: false,
-  };
+export interface EndpointPlanInput {
+  /** The workload endpoints as edited, visibility included. */
+  endpoints: Record<string, ExposableEndpoint>;
+  allowedEndpoints: AllowedEndpointTypeEntry[];
+  /** The "Exposed via" choice per workload endpoint, by current name. */
+  choices: EndpointExposures;
+  /** The component's Endpoints as on the server. */
+  originals: ComponentEndpointSummary[];
+  /** Workload endpoints renamed on the page: old name → new name. */
+  renames: Record<string, string>;
+}
+
+function originalTypeKey(original: ComponentEndpointSummary): string {
+  return endpointTypeKey({ kind: original.typeKind, name: original.typeName });
 }
 
 function sameSet(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every(v => b.includes(v));
 }
 
-function sameValue(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
+/** The workload endpoint an original Endpoint belongs to after renames. */
+export function currentEndpointName(
+  original: ComponentEndpointSummary,
+  renames: Record<string, string>,
+): string {
+  return renames[original.workloadEndpoint] ?? original.workloadEndpoint;
 }
 
 /**
- * Compares a staged Endpoint against the workload endpoints being edited: an
- * Endpoint keeps only the visibilities its workload endpoint still has, and
- * is deleted when none is left or the workload endpoint is gone.
+ * The Endpoint each workload endpoint is shown with: the first of the
+ * component's Endpoints routing to it. Further ones (left from an older
+ * per-visibility split) are kept as they are.
  */
-export function draftStatus(
-  draft: EndpointDraft,
-  workloadEndpoints: Record<string, ExposableEndpoint>,
-): EndpointDraftStatus {
-  const endpoint = workloadEndpoints[draft.workloadEndpoint];
-  if (draft.deleted) {
-    return { visibility: [], dropped: [], deleteReason: 'deleted' };
+export function primaryOriginals(
+  originals: ComponentEndpointSummary[],
+  renames: Record<string, string>,
+): Map<string, ComponentEndpointSummary> {
+  const primary = new Map<string, ComponentEndpointSummary>();
+  for (const original of originals) {
+    const name = currentEndpointName(original, renames);
+    if (!primary.has(name)) primary.set(name, original);
   }
-  if (!endpoint) {
-    return {
-      visibility: [],
-      dropped: [],
-      deleteReason: 'workloadEndpointRemoved',
-    };
-  }
-  const exposable = exposableVisibilities(endpoint);
-  const visibility = draft.visibility.filter(v => exposable.includes(v));
-  const dropped = draft.visibility.filter(v => !exposable.includes(v));
-  if (visibility.length === 0) {
-    return { visibility, dropped, deleteReason: 'notExposed' };
-  }
-  return { visibility, dropped };
+  return primary;
+}
+
+/** The workload endpoints exposed through an Endpoint after saving. */
+export function exposedEndpointNames(input: EndpointPlanInput): string[] {
+  return Object.entries(input.endpoints)
+    .filter(
+      ([name, endpoint]) =>
+        exposableVisibilities(endpoint).length > 0 &&
+        resolveEndpointType(
+          endpoint,
+          input.allowedEndpoints,
+          input.choices[name],
+        ) !== NO_ENDPOINT,
+    )
+    .map(([name]) => name);
 }
 
 /**
- * The calls that save the staged Endpoints: deletes first, so a recreated
- * Endpoint never clashes with the one it replaces, then updates and creates.
- * An Endpoint added and then dropped again on the page needs no call.
+ * Plans the Endpoint calls that bring the server in line with the page:
+ * deletes first, so a replacement never clashes with what it replaces, then
+ * updates and creates.
  */
 export function planEndpointChanges(
-  drafts: EndpointDraft[],
-  workloadEndpoints: Record<string, ExposableEndpoint>,
+  input: EndpointPlanInput,
 ): EndpointChange[] {
   const deletes: EndpointChange[] = [];
   const updates: EndpointChange[] = [];
   const creates: EndpointChange[] = [];
-  for (const draft of drafts) {
-    const status = draftStatus(draft, workloadEndpoints);
-    const { original } = draft;
+  const primary = primaryOriginals(input.originals, input.renames);
+
+  for (const original of input.originals) {
+    const name = currentEndpointName(original, input.renames);
+    if (!input.endpoints[name] && primary.get(name) === original) {
+      deletes.push({
+        op: 'delete',
+        original,
+        reason: 'workloadEndpointRemoved',
+      });
+    }
+  }
+
+  for (const [name, endpoint] of Object.entries(input.endpoints)) {
+    const visibility = exposableVisibilities(endpoint);
+    const typeKey = resolveEndpointType(
+      endpoint,
+      input.allowedEndpoints,
+      input.choices[name],
+    );
+    const parameters = input.choices[name]?.parameters ?? {};
+    const want = visibility.length > 0 && typeKey !== NO_ENDPOINT;
+    const original = primary.get(name);
+
     if (!original) {
-      if (!status.deleteReason) {
-        creates.push({ op: 'create', draft, visibility: status.visibility });
+      if (want) {
+        creates.push({
+          op: 'create',
+          workloadEndpoint: name,
+          typeKey,
+          visibility,
+          parameters,
+        });
       }
       continue;
     }
-    const tracked = { ...draft, original };
-    if (status.deleteReason) {
-      deletes.push({
-        op: 'delete',
-        draft: tracked,
-        reason: status.deleteReason,
+    if (!want) {
+      deletes.push({ op: 'delete', original, reason: 'notExposed' });
+      continue;
+    }
+    if (originalTypeKey(original) !== typeKey) {
+      deletes.push({ op: 'delete', original, reason: 'typeChanged' });
+      creates.push({
+        op: 'create',
+        workloadEndpoint: name,
+        typeKey,
+        visibility,
+        parameters,
       });
-    } else if (
-      !sameSet(status.visibility, original.visibility) ||
-      !sameValue(draft.parameters, original.parameters) ||
-      draft.workloadEndpoint !== original.workloadEndpoint
+      continue;
+    }
+    if (
+      !sameSet(visibility, original.visibility) ||
+      deepCompareObjects(original.parameters ?? {}, parameters).length > 0 ||
+      name !== original.workloadEndpoint
     ) {
       updates.push({
         op: 'update',
-        draft: tracked,
-        visibility: status.visibility,
+        original,
+        workloadEndpoint: name,
+        visibility,
+        parameters,
       });
     }
   }
   return [...deletes, ...updates, ...creates];
 }
 
-/** Display name of a staged Endpoint in change lists. */
-export function draftLabel(draft: EndpointDraft): string {
-  return draft.original
-    ? draft.original.name
-    : `new ${draft.typeName} Endpoint for ${draft.workloadEndpoint}`;
-}
-
-const DELETE_REASONS: Record<EndpointDeleteReason, string> = {
-  deleted: 'Deleted',
+const DELETE_REASONS = {
+  notExposed: 'Deleted (no visibility beyond project, or exposed via none)',
   workloadEndpointRemoved: 'Deleted (workload endpoint removed)',
-  notExposed: 'Deleted (no internal or external visibility left)',
+  typeChanged: 'Replaced (endpoint type changed)',
 };
 
-/** The staged Endpoint changes, as the save confirmation lists them. */
+/** The planned Endpoint calls, as the save confirmation lists them. */
 export function endpointChangeList(changes: EndpointChange[]): Change[] {
   const list: Change[] = [];
   for (const change of changes) {
-    const label = draftLabel(change.draft);
     switch (change.op) {
       case 'create':
         list.push({
-          path: label,
+          path: `new Endpoint for ${change.workloadEndpoint}`,
           type: 'new',
-          newValue: `${change.draft.typeName} · ${change.visibility.join(
-            ', ',
-          )}`,
+          newValue: `${
+            parseEndpointTypeKey(change.typeKey).name
+          } · ${change.visibility.join(', ')}`,
         });
         break;
       case 'delete':
         list.push({
-          path: label,
+          path: change.original.name,
           type: 'removed',
           oldValue: DELETE_REASONS[change.reason],
         });
         break;
       case 'update': {
-        const { draft, visibility } = change;
-        const { original } = draft;
-        if (draft.workloadEndpoint !== original.workloadEndpoint) {
+        const { original } = change;
+        const label = original.name;
+        if (change.workloadEndpoint !== original.workloadEndpoint) {
           list.push({
             path: `${label}.workloadEndpoint`,
             type: 'modified',
             oldValue: original.workloadEndpoint,
-            newValue: draft.workloadEndpoint,
+            newValue: change.workloadEndpoint,
           });
         }
-        if (!sameSet(visibility, original.visibility)) {
+        if (!sameSet(change.visibility, original.visibility)) {
           list.push({
             path: `${label}.visibility`,
             type: 'modified',
             oldValue: original.visibility.join(', '),
-            newValue: visibility.join(', '),
+            newValue: change.visibility.join(', '),
           });
         }
         for (const diff of deepCompareObjects(
           original.parameters ?? {},
-          draft.parameters ?? {},
+          change.parameters,
         )) {
           list.push({ ...diff, path: `${label}.parameters.${diff.path}` });
         }

@@ -11,19 +11,16 @@ import {
 
 const httpRoute = {
   protocols: ['HTTP'],
-  visibilities: ['external', 'internal'],
   ref: { kind: 'ClusterEndpointType', name: 'http-route' },
   default: true,
 };
 const managed = {
   name: 'managed',
   protocols: ['HTTP'],
-  visibilities: ['external'],
   ref: { kind: 'ClusterEndpointType', name: 'managed-api' },
 };
 const grpcOptIn = {
   protocols: ['gRPC'],
-  visibilities: ['external'],
   ref: { kind: 'ClusterEndpointType', name: 'grpc-route' },
 };
 
@@ -36,70 +33,10 @@ const HTTP_ROUTE_SCHEMA = {
 };
 
 describe('EndpointExposure', () => {
-  it('shows the parameters directly when only one endpoint type matches', () => {
-    render(
-      <EndpointExposure
-        endpoint={{ type: 'HTTP', visibility: ['project', 'internal'] }}
-        allowedEndpoints={[httpRoute, managed]}
-        schemas={{ [HTTP_ROUTE]: HTTP_ROUTE_SCHEMA }}
-        onChange={jest.fn()}
-      />,
-    );
-
-    expect(screen.getByText('EndpointType: http-route')).toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByText('Parameters')).toBeInTheDocument();
-    expect(screen.getByLabelText(/Path prefix/)).toBeInTheDocument();
-  });
-
-  it('offers a dropdown when several endpoint types match', async () => {
-    const onChange = jest.fn();
-    render(
-      <EndpointExposure
-        endpoint={{ type: 'HTTP', visibility: ['external'] }}
-        allowedEndpoints={[httpRoute, managed]}
-        schemas={{ [HTTP_ROUTE]: HTTP_ROUTE_SCHEMA }}
-        onChange={onChange}
-      />,
-    );
-
-    fireEvent.mouseDown(screen.getByRole('button', { name: /http-route/ }));
-    fireEvent.click(await screen.findByText('managed-api (managed)'));
-
-    expect(onChange).toHaveBeenCalledWith({
-      types: { external: 'ClusterEndpointType/managed-api' },
-    });
-  });
-
-  it('names each endpoint type with its visibilities when several are in use', () => {
-    render(
-      <EndpointExposure
-        endpoint={{ type: 'HTTP', visibility: ['external', 'internal'] }}
-        allowedEndpoints={[httpRoute, managed]}
-        choice={{
-          types: {
-            external: 'ClusterEndpointType/managed-api',
-            internal: HTTP_ROUTE,
-          },
-        }}
-        schemas={{
-          [HTTP_ROUTE]: HTTP_ROUTE_SCHEMA,
-          'ClusterEndpointType/managed-api': { type: 'object' },
-        }}
-        onChange={jest.fn()}
-      />,
-    );
-
-    expect(screen.getByText('(external)')).toBeInTheDocument();
-    expect(screen.getByText('(internal)')).toBeInTheDocument();
-    // managed-api has no parameters, so only http-route's form shows.
-    expect(screen.getAllByText('Parameters')).toHaveLength(1);
-  });
-
-  it('renders nothing for an endpoint with only project visibility', () => {
+  it('renders nothing for an endpoint with project visibility only', () => {
     const { container } = render(
       <EndpointExposure
-        endpoint={{ type: 'HTTP', visibility: ['project'] }}
+        endpoint={{ protocol: 'HTTP', visibility: ['project'] }}
         allowedEndpoints={[httpRoute]}
         schemas={{}}
         onChange={jest.fn()}
@@ -107,42 +44,141 @@ describe('EndpointExposure', () => {
     );
     expect(container).toBeEmptyDOMElement();
   });
-});
 
-describe('formExposures', () => {
-  it('submits the single matching type even when it is not the default', () => {
+  it('preselects the default type and shows its parameters', () => {
+    render(
+      <EndpointExposure
+        endpoint={{ protocol: 'HTTP', visibility: ['external'] }}
+        allowedEndpoints={[httpRoute, managed]}
+        schemas={{ [HTTP_ROUTE]: HTTP_ROUTE_SCHEMA }}
+        onChange={jest.fn()}
+      />,
+    );
     expect(
-      formExposures(
-        {
-          rpc: { type: 'gRPC', visibility: ['external'] },
-          local: { type: 'HTTP', visibility: ['project'] },
-        },
-        [httpRoute, grpcOptIn],
-        {},
-      ),
-    ).toEqual({
-      rpc: { types: { external: 'ClusterEndpointType/grpc-route' } },
+      screen.getByRole('button', { name: /http-route/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/Path prefix/)).toBeInTheDocument();
+  });
+
+  it('reports a different type, resetting its parameters', async () => {
+    const onChange = jest.fn();
+    render(
+      <EndpointExposure
+        endpoint={{ protocol: 'HTTP', visibility: ['external'] }}
+        allowedEndpoints={[httpRoute, managed]}
+        schemas={{ [HTTP_ROUTE]: HTTP_ROUTE_SCHEMA }}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.mouseDown(screen.getByRole('button', { name: /http-route/ }));
+    fireEvent.click(await screen.findByText(/managed-api/));
+    expect(onChange).toHaveBeenCalledWith({
+      type: 'ClusterEndpointType/managed-api',
     });
   });
 
-  it('drops choices for removed endpoints and keeps parameters', () => {
+  it('fixes the type of a row already exposed through an Endpoint', () => {
+    render(
+      <EndpointExposure
+        endpoint={{ protocol: 'HTTP', visibility: ['external'] }}
+        allowedEndpoints={[httpRoute, managed]}
+        choice={{ type: HTTP_ROUTE }}
+        schemas={{ [HTTP_ROUTE]: HTTP_ROUTE_SCHEMA }}
+        onChange={jest.fn()}
+        typeLocked
+      />,
+    );
+    expect(screen.getByRole('button', { name: /http-route/ })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByText(/fixed once created/)).toBeInTheDocument();
+  });
+
+  it('starts on the first allowed type when the protocol has no default', () => {
+    render(
+      <EndpointExposure
+        endpoint={{ protocol: 'gRPC', visibility: ['external'] }}
+        allowedEndpoints={[httpRoute, grpcOptIn]}
+        schemas={{}}
+        onChange={jest.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: /grpc-route/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers no "none" option and no default suffix', async () => {
+    render(
+      <EndpointExposure
+        endpoint={{ protocol: 'HTTP', visibility: ['external'] }}
+        allowedEndpoints={[httpRoute, managed]}
+        schemas={{ [HTTP_ROUTE]: HTTP_ROUTE_SCHEMA }}
+        onChange={jest.fn()}
+      />,
+    );
+    fireEvent.mouseDown(screen.getByRole('button', { name: /http-route/ }));
+    const options = await screen.findAllByRole('option');
+    expect(options.map(o => o.textContent)).toEqual([
+      'http-route',
+      'managed-api (managed)',
+    ]);
+  });
+
+  it('stays empty for an existing endpoint not yet moved to an Endpoint', () => {
+    render(
+      <EndpointExposure
+        endpoint={{ type: 'HTTP', visibility: ['external'] }}
+        allowedEndpoints={[httpRoute]}
+        choice={{ type: 'none' }}
+        schemas={{}}
+        onChange={jest.fn()}
+      />,
+    );
+    expect(screen.getByText('Choose an endpoint type')).toBeInTheDocument();
+    expect(screen.getByText(/stored on the workload/)).toBeInTheDocument();
+  });
+
+  it('shows only the deprecation note when no type fits the protocol', () => {
+    render(
+      <EndpointExposure
+        endpoint={{ protocol: 'TCP', visibility: ['external'] }}
+        allowedEndpoints={[httpRoute]}
+        schemas={{}}
+        onChange={jest.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByText(/stored on the workload/)).toBeInTheDocument();
+  });
+});
+
+describe('formExposures', () => {
+  it('submits one resolved choice per exposable endpoint', () => {
     expect(
       formExposures(
-        { api: { type: 'HTTP', visibility: ['internal'] } },
-        [httpRoute],
+        {
+          api: { protocol: 'HTTP', visibility: ['external'] },
+          rpc: { protocol: 'gRPC', visibility: ['internal'] },
+          admin: { protocol: 'HTTP', visibility: ['project'] },
+          raw: { protocol: 'TCP', visibility: ['external'] },
+          gone: { protocol: 'HTTP', visibility: [] },
+        },
+        [httpRoute, managed, grpcOptIn],
         {
           api: {
-            types: { internal: HTTP_ROUTE },
-            parameters: { [HTTP_ROUTE]: { pathPrefix: '/api' } },
+            type: 'ClusterEndpointType/managed-api',
+            parameters: { plan: 'gold' },
           },
-          gone: { types: { internal: HTTP_ROUTE } },
         },
       ),
     ).toEqual({
       api: {
-        types: { internal: HTTP_ROUTE },
-        parameters: { [HTTP_ROUTE]: { pathPrefix: '/api' } },
+        type: 'ClusterEndpointType/managed-api',
+        parameters: { plan: 'gold' },
       },
+      rpc: { type: 'ClusterEndpointType/grpc-route' },
     });
   });
 });

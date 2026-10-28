@@ -1,110 +1,99 @@
 import {
   NO_ENDPOINT,
+  defaultEndpointType,
+  endpointProtocol,
   endpointTypeCandidates,
   planEndpointExposures,
-  resolveEndpointTypes,
+  resolveEndpointType,
+  workloadEndpointsForSave,
   type AllowedEndpointTypeEntry,
 } from './endpointExposure';
 
-const http: AllowedEndpointTypeEntry = {
-  protocols: ['HTTP', 'GraphQL', 'Websocket'],
-  visibilities: ['internal', 'namespace'],
+const route: AllowedEndpointTypeEntry = {
+  protocols: ['HTTP', 'GraphQL'],
   ref: { kind: 'ClusterEndpointType', name: 'http-route' },
   default: true,
 };
 const managed: AllowedEndpointTypeEntry = {
+  name: 'managed',
   protocols: ['HTTP'],
-  visibilities: ['external'],
-  ref: { kind: 'ClusterEndpointType', name: 'managed-api' },
-  default: true,
+  ref: { kind: 'ClusterEndpointType', name: 'managed-http' },
 };
-const plainExternal: AllowedEndpointTypeEntry = {
-  name: 'web',
-  protocols: ['HTTP'],
-  visibilities: ['external', 'internal'],
-  ref: { kind: 'ClusterEndpointType', name: 'http-route' },
-};
-const grpcOptIn: AllowedEndpointTypeEntry = {
+const grpc: AllowedEndpointTypeEntry = {
   protocols: ['gRPC'],
-  visibilities: ['external'],
   ref: { kind: 'ClusterEndpointType', name: 'grpc-route' },
 };
-const entries = [http, managed, plainExternal, grpcOptIn];
+const entries = [managed, route, grpc];
 
-describe('endpointTypeCandidates', () => {
-  it('lists defaults first and each type once', () => {
-    expect(
-      endpointTypeCandidates('HTTP', 'external', entries).map(e => e.ref.name),
-    ).toEqual(['managed-api', 'http-route']);
-    expect(
-      endpointTypeCandidates('HTTP', 'internal', entries).map(e => e.ref.name),
-    ).toEqual(['http-route']);
+describe('endpointProtocol', () => {
+  it('prefers protocol and falls back to the deprecated type', () => {
+    expect(endpointProtocol({ protocol: 'gRPC', type: 'HTTP' })).toBe('gRPC');
+    expect(endpointProtocol({ type: 'HTTP' })).toBe('HTTP');
   });
 });
 
-describe('resolveEndpointTypes', () => {
-  it('uses the default entry when nothing is chosen', () => {
+describe('endpointTypeCandidates', () => {
+  it('lists entries for the protocol, default first', () => {
     expect(
-      resolveEndpointTypes(
-        { type: 'HTTP', visibility: ['project', 'external', 'internal'] },
-        entries,
-      ),
-    ).toEqual({
-      external: 'ClusterEndpointType/managed-api',
-      internal: 'ClusterEndpointType/http-route',
-    });
+      endpointTypeCandidates('HTTP', entries).map(e => e.ref.name),
+    ).toEqual(['http-route', 'managed-http']);
+    expect(endpointTypeCandidates('TCP', entries)).toEqual([]);
+  });
+});
+
+describe('defaultEndpointType', () => {
+  it('returns the default entry, else the first allowed one, else none', () => {
+    expect(defaultEndpointType('HTTP', entries)).toBe(
+      'ClusterEndpointType/http-route',
+    );
+    expect(defaultEndpointType('gRPC', entries)).toBe(
+      'ClusterEndpointType/grpc-route',
+    );
+    expect(defaultEndpointType('TCP', entries)).toBe(NO_ENDPOINT);
+  });
+});
+
+describe('resolveEndpointType', () => {
+  const http = { protocol: 'HTTP', visibility: ['external'] };
+
+  it('keeps a valid choice, including none', () => {
+    expect(
+      resolveEndpointType(http, entries, {
+        type: 'ClusterEndpointType/managed-http',
+      }),
+    ).toBe('ClusterEndpointType/managed-http');
+    expect(resolveEndpointType(http, entries, { type: NO_ENDPOINT })).toBe(
+      NO_ENDPOINT,
+    );
   });
 
-  it('keeps a valid choice, including no Endpoint, and drops an invalid one', () => {
+  it('falls back to the default when the choice no longer fits', () => {
     expect(
-      resolveEndpointTypes(
-        { type: 'HTTP', visibility: ['external', 'internal'] },
-        entries,
-        {
-          types: {
-            external: 'ClusterEndpointType/http-route',
-            internal: 'ClusterEndpointType/grpc-route',
-          },
-        },
-      ),
-    ).toEqual({
-      external: 'ClusterEndpointType/http-route',
-      internal: 'ClusterEndpointType/http-route',
-    });
-    expect(
-      resolveEndpointTypes(
-        { type: 'HTTP', visibility: ['external'] },
-        entries,
-        {
-          types: { external: NO_ENDPOINT },
-        },
-      ),
-    ).toEqual({ external: NO_ENDPOINT });
-  });
-
-  it('creates no Endpoint where only opt-in entries match', () => {
-    expect(
-      resolveEndpointTypes({ type: 'gRPC', visibility: ['external'] }, entries),
-    ).toEqual({ external: NO_ENDPOINT });
+      resolveEndpointType(http, entries, {
+        type: 'ClusterEndpointType/grpc-route',
+      }),
+    ).toBe('ClusterEndpointType/http-route');
   });
 });
 
 describe('planEndpointExposures', () => {
-  it('groups visibilities by type and attaches that type parameters', () => {
+  it('plans one Endpoint per exposed workload endpoint', () => {
     expect(
       planEndpointExposures(
-        { api: { type: 'HTTP', visibility: ['external', 'internal'] } },
+        {
+          api: {
+            protocol: 'HTTP',
+            visibility: ['project', 'external', 'internal'],
+          },
+          admin: { protocol: 'HTTP', visibility: ['project'] },
+          rpc: { protocol: 'gRPC', visibility: ['external'] },
+          raw: { protocol: 'TCP', visibility: ['external'] },
+        },
         entries,
         {
           api: {
-            types: {
-              external: 'ClusterEndpointType/http-route',
-              internal: 'ClusterEndpointType/http-route',
-            },
-            parameters: {
-              'ClusterEndpointType/http-route': { pathPrefix: '/api' },
-              'ClusterEndpointType/managed-api': { plan: 'gold' },
-            },
+            type: 'ClusterEndpointType/managed-http',
+            parameters: { a: 1 },
           },
         },
       ),
@@ -112,34 +101,43 @@ describe('planEndpointExposures', () => {
       {
         workloadEndpoint: 'api',
         typeKind: 'ClusterEndpointType',
-        typeName: 'http-route',
+        typeName: 'managed-http',
         visibility: ['external', 'internal'],
-        parameters: { pathPrefix: '/api' },
+        parameters: { a: 1 },
+      },
+      {
+        workloadEndpoint: 'rpc',
+        typeKind: 'ClusterEndpointType',
+        typeName: 'grpc-route',
+        visibility: ['external'],
       },
     ]);
   });
+});
 
-  it('splits visibilities across types and skips no-Endpoint ones', () => {
+describe('workloadEndpointsForSave', () => {
+  it('drops visibility the Endpoint carries and sets protocol', () => {
     expect(
-      planEndpointExposures(
+      workloadEndpointsForSave(
         {
-          api: { type: 'HTTP', visibility: ['external', 'internal'] },
-          tcp: { type: 'TCP', visibility: ['internal'] },
-          rpc: { type: 'gRPC', visibility: ['external'] },
+          api: { type: 'HTTP', port: 80, visibility: ['project', 'external'] },
+          legacy: { type: 'HTTP', port: 81, visibility: ['external'] },
         },
-        entries,
-      ).map(p => [p.workloadEndpoint, p.typeName, p.visibility]),
-    ).toEqual([
-      ['api', 'managed-api', ['external']],
-      ['api', 'http-route', ['internal']],
-    ]);
-  });
-
-  it('defaults a ref without kind to EndpointType', () => {
-    const [planned] = planEndpointExposures(
-      { api: { type: 'HTTP', visibility: ['internal'] } },
-      [{ ...http, ref: { name: 'ns-route' } }],
-    );
-    expect(planned.typeKind).toBe('EndpointType');
+        ['api'],
+      ),
+    ).toEqual({
+      api: {
+        type: 'HTTP',
+        protocol: 'HTTP',
+        port: 80,
+        visibility: ['project'],
+      },
+      legacy: {
+        type: 'HTTP',
+        protocol: 'HTTP',
+        port: 81,
+        visibility: ['external'],
+      },
+    });
   });
 });

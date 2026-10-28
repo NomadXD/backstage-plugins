@@ -33,7 +33,8 @@ export const SOURCE_ENDPOINT_LABEL = CHOREO_LABELS.ENDPOINT_SOURCE_ENDPOINT;
 
 /** The part of a workload endpoint that decides how it is exposed. */
 export interface WorkloadEndpointLike {
-  type: string;
+  protocol?: string;
+  type?: string;
   visibility?: string[];
 }
 
@@ -45,9 +46,8 @@ export interface PlannedEndpoint extends PlannedExposure {
 /**
  * Decides which Endpoints a component needs from its workload endpoints, its
  * ComponentType's allowedEndpoints, and the developer's choices in the
- * creation form (see planEndpointExposures). Each Endpoint is named
- * `<component>-<endpoint>`, suffixed with the EndpointType when one workload
- * endpoint is exposed through more than one type.
+ * creation form (see planEndpointExposures): one per exposed workload
+ * endpoint, named `<component>-<endpoint>`.
  */
 export function planComponentEndpoints(
   componentName: string,
@@ -55,74 +55,42 @@ export function planComponentEndpoints(
   allowedEndpoints: AllowedEndpointType[],
   exposures?: EndpointExposures,
 ): PlannedEndpoint[] {
-  const planned = planEndpointExposures(
+  return planEndpointExposures(
     workloadEndpoints,
     allowedEndpoints,
     exposures,
-  );
-  const perEndpoint = new Map<string, number>();
-  for (const p of planned) {
-    perEndpoint.set(
-      p.workloadEndpoint,
-      (perEndpoint.get(p.workloadEndpoint) ?? 0) + 1,
-    );
-  }
-  return planned.map(p => {
-    const split = (perEndpoint.get(p.workloadEndpoint) ?? 0) > 1;
-    return {
-      ...p,
-      name: componentEndpointName(
-        componentName,
-        p.workloadEndpoint,
-        split ? p.typeName : undefined,
-      ),
-    };
-  });
+  ).map(p => ({
+    ...p,
+    name: componentEndpointName(componentName, p.workloadEndpoint),
+  }));
 }
 
-export interface GenerateComponentEndpointsOptions {
+export interface CreateComponentEndpointsOptions {
   client: OpenChoreoClient;
   logger: LoggerService;
   namespaceName: string;
   projectName: string;
   componentName: string;
-  componentTypeKind: 'ComponentType' | 'ClusterComponentType';
-  componentTypeName: string;
-  workloadEndpoints: Record<string, WorkloadEndpointLike>;
-  /** The developer's EndpointType and parameter choices from the form. */
-  exposures?: EndpointExposures;
+  planned: PlannedEndpoint[];
   autoDeploy: boolean;
   insertEntity: ImmediateCatalogService['insertEntity'];
   defaultOwner: string;
 }
 
 /**
- * Creates the Endpoints a new component's workload endpoints call for, so a
- * developer declaring port, protocol and visibility gets the same one-step
- * exposure an Endpoint-backed ComponentType provides.
+ * Creates the planned Endpoints of a new component, after its workload, so a
+ * developer declaring port, protocol and visibility gets one-step exposure.
  *
  * Every failure is logged and skipped: the component and its workload already
  * exist, and an Endpoint can still be created from the project afterwards.
  * Returns the names of the Endpoints created.
  */
-export async function generateComponentEndpoints(
-  opts: GenerateComponentEndpointsOptions,
+export async function createComponentEndpoints(
+  opts: CreateComponentEndpointsOptions,
 ): Promise<string[]> {
   const { client, logger, namespaceName, projectName, componentName } = opts;
-
-  const allowed = await fetchAllowedEndpoints(opts);
-  if (allowed.length === 0) {
-    return [];
-  }
-
-  const planned = planComponentEndpoints(
-    componentName,
-    opts.workloadEndpoints,
-    allowed,
-    opts.exposures,
-  );
   const created: string[] = [];
-  for (const endpoint of planned) {
+  for (const endpoint of opts.planned) {
     const backendName = toDnsLabel(componentName);
     const body = buildComponentEndpoint({
       name: endpoint.name,
@@ -198,9 +166,18 @@ export async function generateComponentEndpoints(
   return created;
 }
 
-async function fetchAllowedEndpoints(
-  opts: GenerateComponentEndpointsOptions,
-): Promise<AllowedEndpointType[]> {
+/**
+ * Reads the allowedEndpoints of a component's (Cluster)ComponentType. A type
+ * that cannot be read yields none, so the component is created with its
+ * workload endpoints exposed the deprecated way rather than not at all.
+ */
+export async function fetchAllowedEndpoints(opts: {
+  client: OpenChoreoClient;
+  logger: LoggerService;
+  namespaceName: string;
+  componentTypeKind: 'ComponentType' | 'ClusterComponentType';
+  componentTypeName: string;
+}): Promise<AllowedEndpointType[]> {
   const { client, logger, namespaceName, componentTypeName } = opts;
   const { data, error, response } =
     opts.componentTypeKind === 'ClusterComponentType'
@@ -215,10 +192,9 @@ async function fetchAllowedEndpoints(
         );
   if (error || !response.ok || !data) {
     logger.warn(
-      `Could not read ${opts.componentTypeKind} '${componentTypeName}' to ` +
-        `decide which Endpoints to create: ${response.status} ${JSON.stringify(
-          error,
-        )}. No Endpoints were created.`,
+      `Could not read ${opts.componentTypeKind} '${componentTypeName}' for its ` +
+        `allowedEndpoints: ${response.status} ${JSON.stringify(error)}. ` +
+        `No Endpoints will be created.`,
     );
     return [];
   }

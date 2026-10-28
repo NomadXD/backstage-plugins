@@ -6029,16 +6029,14 @@ export interface components {
        */
       name: string;
     };
-    /** @description Maps workload endpoints of a given protocol and visibility to the EndpointType that exposes them. */
+    /** @description Maps workload endpoints of a given protocol to the EndpointType that may expose them. The developer chooses the visibility on the Endpoint. */
     AllowedEndpointType: {
-      /** @description Optional alias a workload endpoint can name to pick this entry when several match. */
+      /** @description Optional alias a workload endpoint can name to pick this entry when several match its protocol. */
       name?: string;
       /** @description Workload endpoint protocols this entry applies to (HTTP, gRPC, GraphQL, Websocket, TCP, UDP). */
       protocols: string[];
-      /** @description Requested visibilities this entry applies to. Project visibility is implicit and not accepted. */
-      visibilities: ('namespace' | 'internal' | 'external')[];
       ref: components['schemas']['EndpointTypeRef'];
-      /** @description Marks this entry as the automatic choice for its protocols and visibilities. */
+      /** @description Marks this entry as the automatic choice for its protocols. At most one default entry may match a protocol. */
       default?: boolean;
     };
     /** @description Paginated list of endpoints */
@@ -7467,15 +7465,24 @@ export interface components {
       /** @description File configurations */
       files?: components['schemas']['FileVar'][];
     };
-    /** @description Network endpoint specification */
+    /** @description Network endpoint specification. One of protocol or the deprecated type must be set; the API keeps the two equal. */
     WorkloadEndpoint: {
-      /** @description Additional endpoint visibilities beyond implicit project visibility */
+      /**
+       * @deprecated
+       * @description Deprecated: expose the endpoint through an Endpoint, whose visibility carries the requested scopes. Additional endpoint visibilities beyond implicit project visibility; still honored by component types that read it.
+       */
       visibility?: ('project' | 'namespace' | 'internal' | 'external')[];
       /**
-       * @description Protocol/technology of the endpoint
+       * @description Protocol the endpoint serves. Replaces type.
        * @enum {string}
        */
-      type: 'HTTP' | 'gRPC' | 'GraphQL' | 'Websocket' | 'TCP' | 'UDP';
+      protocol?: 'HTTP' | 'gRPC' | 'GraphQL' | 'Websocket' | 'TCP' | 'UDP';
+      /**
+       * @deprecated
+       * @description Deprecated: use protocol. Protocol/technology of the endpoint.
+       * @enum {string}
+       */
+      type?: 'HTTP' | 'gRPC' | 'GraphQL' | 'Websocket' | 'TCP' | 'UDP';
       /** @description Port exposed by the endpoint */
       port: number;
       /** @description Container listening port (defaults to port) */
