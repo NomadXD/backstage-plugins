@@ -1,13 +1,26 @@
 import type { ComponentEndpointSummary } from '@openchoreo/backstage-plugin-common';
 import {
-  draftFromSummary,
-  draftStatus,
   endpointChangeList,
+  exposedEndpointNames,
   planEndpointChanges,
-  type EndpointDraft,
+  type EndpointPlanInput,
 } from './componentEndpointDrafts';
 
-const summary = (
+const allowedEndpoints = [
+  {
+    protocols: ['HTTP'],
+    ref: { kind: 'ClusterEndpointType', name: 'http-route' },
+    default: true,
+  },
+  {
+    protocols: ['HTTP'],
+    ref: { kind: 'ClusterEndpointType', name: 'managed-http' },
+  },
+];
+const ROUTE = 'ClusterEndpointType/http-route';
+const MANAGED = 'ClusterEndpointType/managed-http';
+
+const original = (
   overrides: Partial<ComponentEndpointSummary> = {},
 ): ComponentEndpointSummary => ({
   name: 'orders-api',
@@ -15,132 +28,147 @@ const summary = (
   typeKind: 'ClusterEndpointType',
   typeName: 'http-route',
   visibility: ['external'],
-  parameters: { host: 'a' },
+  parameters: {},
   autoDeploy: true,
   ...overrides,
 });
 
-const workload = {
-  api: { type: 'HTTP', visibility: ['external', 'internal'] },
-};
-
-describe('draftStatus', () => {
-  it('keeps the visibilities the workload endpoint still has', () => {
-    const draft = {
-      ...draftFromSummary(summary()),
-      visibility: ['external', 'namespace'],
-    };
-    expect(draftStatus(draft, workload)).toEqual({
-      visibility: ['external'],
-      dropped: ['namespace'],
-    });
-  });
-
-  it('deletes an Endpoint whose workload endpoint is gone', () => {
-    expect(draftStatus(draftFromSummary(summary()), {})).toEqual(
-      expect.objectContaining({ deleteReason: 'workloadEndpointRemoved' }),
-    );
-  });
-
-  it('deletes an Endpoint with no visibility left to serve', () => {
-    expect(
-      draftStatus(draftFromSummary(summary()), {
-        api: { type: 'HTTP', visibility: ['project'] },
-      }),
-    ).toEqual(expect.objectContaining({ deleteReason: 'notExposed' }));
-  });
+const input = (overrides: Partial<EndpointPlanInput>): EndpointPlanInput => ({
+  endpoints: {},
+  allowedEndpoints,
+  choices: {},
+  originals: [],
+  renames: {},
+  ...overrides,
 });
 
+const ops = (plan: ReturnType<typeof planEndpointChanges>) =>
+  plan.map(c =>
+    c.op === 'create'
+      ? `create ${c.workloadEndpoint}`
+      : `${c.op} ${c.original.name}`,
+  );
+
 describe('planEndpointChanges', () => {
-  it('needs no call for unchanged Endpoints', () => {
+  it('needs no call for an unchanged Endpoint', () => {
     expect(
-      planEndpointChanges([draftFromSummary(summary())], workload),
+      planEndpointChanges(
+        input({
+          endpoints: { api: { protocol: 'HTTP', visibility: ['external'] } },
+          choices: { api: { type: ROUTE, parameters: {} } },
+          originals: [original()],
+        }),
+      ),
     ).toEqual([]);
   });
 
-  it('orders deletes, then updates, then creates', () => {
-    const added: EndpointDraft = {
-      key: 'new:1',
-      workloadEndpoint: 'api',
-      typeKind: 'ClusterEndpointType',
-      typeName: 'managed-http',
-      visibility: ['internal'],
-      parameters: {},
-      deleted: false,
-    };
-    const updated = {
-      ...draftFromSummary(summary({ name: 'orders-a' })),
-      parameters: { host: 'b' },
-    };
-    const deleted = {
-      ...draftFromSummary(summary({ name: 'orders-b' })),
-      deleted: true,
-    };
-
-    expect(
-      planEndpointChanges([added, updated, deleted], workload).map(c => [
-        c.op,
-        c.draft.key,
-      ]),
-    ).toEqual([
-      ['delete', 'orders-b'],
-      ['update', 'orders-a'],
-      ['create', 'new:1'],
-    ]);
-  });
-
-  it('updates an Endpoint whose workload endpoint was renamed', () => {
-    const renamed = {
-      ...draftFromSummary(summary()),
-      workloadEndpoint: 'http',
-    };
-    const [change] = planEndpointChanges([renamed], {
-      http: workload.api,
+  it('leaves a workload endpoint whose choice is none on the workload', () => {
+    const plan = input({
+      endpoints: { legacy: { type: 'HTTP', visibility: ['external'] } },
+      choices: { legacy: { type: 'none' } },
     });
-    expect(change).toEqual(expect.objectContaining({ op: 'update' }));
+    expect(planEndpointChanges(plan)).toEqual([]);
+    expect(exposedEndpointNames(plan)).toEqual([]);
   });
 
-  it('drops an added Endpoint whose workload endpoint went away', () => {
-    const added: EndpointDraft = {
-      key: 'new:1',
-      workloadEndpoint: 'gone',
-      typeKind: 'EndpointType',
-      typeName: 'http-route',
-      visibility: ['external'],
-      parameters: {},
-      deleted: false,
-    };
-    expect(planEndpointChanges([added], workload)).toEqual([]);
+  it('creates an Endpoint when a type is chosen for a workload endpoint', () => {
+    const plan = input({
+      endpoints: {
+        legacy: { type: 'HTTP', visibility: ['external', 'internal'] },
+      },
+      choices: {
+        legacy: { type: MANAGED, parameters: { requireApiKey: true } },
+      },
+    });
+    expect(planEndpointChanges(plan)).toEqual([
+      {
+        op: 'create',
+        workloadEndpoint: 'legacy',
+        typeKey: MANAGED,
+        visibility: ['external', 'internal'],
+        parameters: { requireApiKey: true },
+      },
+    ]);
+    expect(exposedEndpointNames(plan)).toEqual(['legacy']);
+  });
+
+  it('replaces an Endpoint whose type changed, deleting first', () => {
+    expect(
+      ops(
+        planEndpointChanges(
+          input({
+            endpoints: { api: { protocol: 'HTTP', visibility: ['external'] } },
+            choices: { api: { type: MANAGED } },
+            originals: [original()],
+          }),
+        ),
+      ),
+    ).toEqual(['delete orders-api', 'create api']);
+  });
+
+  it('deletes an Endpoint left with no visibility beyond project', () => {
+    expect(
+      ops(
+        planEndpointChanges(
+          input({
+            endpoints: { api: { protocol: 'HTTP', visibility: ['project'] } },
+            choices: { api: { type: ROUTE } },
+            originals: [original()],
+          }),
+        ),
+      ),
+    ).toEqual(['delete orders-api']);
+  });
+
+  it('updates visibility, parameters and a renamed workload endpoint', () => {
+    const [change] = planEndpointChanges(
+      input({
+        endpoints: {
+          http: { protocol: 'HTTP', visibility: ['external', 'internal'] },
+        },
+        choices: { http: { type: ROUTE, parameters: { host: 'b' } } },
+        originals: [original()],
+        renames: { api: 'http' },
+      }),
+    );
+    expect(change).toEqual(
+      expect.objectContaining({
+        op: 'update',
+        workloadEndpoint: 'http',
+        visibility: ['external', 'internal'],
+        parameters: { host: 'b' },
+      }),
+    );
+  });
+
+  it('deletes the Endpoint of a removed workload endpoint', () => {
+    expect(
+      ops(planEndpointChanges(input({ originals: [original()] }))),
+    ).toEqual(['delete orders-api']);
   });
 });
 
 describe('endpointChangeList', () => {
-  it('describes each change for the save confirmation', () => {
-    const updated = {
-      ...draftFromSummary(summary()),
-      visibility: ['external', 'internal'],
-      parameters: { host: 'b' },
-    };
-    const deleted = {
-      ...draftFromSummary(summary({ name: 'orders-old' })),
-      deleted: true,
-    };
+  it('describes each call for the save confirmation', () => {
     expect(
-      endpointChangeList(planEndpointChanges([updated, deleted], workload)),
+      endpointChangeList(
+        planEndpointChanges(
+          input({
+            endpoints: {
+              api: { protocol: 'HTTP', visibility: ['external', 'internal'] },
+            },
+            choices: { api: { type: ROUTE, parameters: {} } },
+            originals: [original()],
+          }),
+        ),
+      ),
     ).toEqual([
-      { path: 'orders-old', type: 'removed', oldValue: 'Deleted' },
       {
         path: 'orders-api.visibility',
         type: 'modified',
         oldValue: 'external',
         newValue: 'external, internal',
       },
-      expect.objectContaining({
-        path: 'orders-api.parameters.host',
-        type: 'modified',
-        oldValue: 'a',
-        newValue: 'b',
-      }),
     ]);
   });
 });

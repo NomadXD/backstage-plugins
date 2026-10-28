@@ -1,5 +1,6 @@
 import {
-  generateComponentEndpoints,
+  createComponentEndpoints,
+  fetchAllowedEndpoints,
   planComponentEndpoints,
   SOURCE_COMPONENT_LABEL,
   SOURCE_ENDPOINT_LABEL,
@@ -11,39 +12,35 @@ jest.mock('@openchoreo/backstage-plugin-catalog-backend-module', () => ({
 }));
 
 const http = {
-  protocols: ['HTTP', 'GraphQL', 'Websocket'],
-  visibilities: ['internal', 'namespace'] as (
-    | 'namespace'
-    | 'internal'
-    | 'external'
-  )[],
+  protocols: ['HTTP', 'GraphQL', 'Websocket'] as any,
   ref: { kind: 'ClusterEndpointType' as const, name: 'http-route' },
   default: true,
 };
 const managed = {
-  protocols: ['HTTP'],
-  visibilities: ['external'] as ('namespace' | 'internal' | 'external')[],
-  ref: { kind: 'ClusterEndpointType' as const, name: 'managed-api' },
-  default: true,
-};
-const grpcOptIn = {
-  protocols: ['gRPC'],
-  visibilities: ['external'] as ('namespace' | 'internal' | 'external')[],
-  ref: { kind: 'ClusterEndpointType' as const, name: 'grpc-route' },
+  name: 'managed',
+  protocols: ['HTTP'] as any,
+  ref: { kind: 'ClusterEndpointType' as const, name: 'managed-http' },
 };
 
+const logger = () =>
+  ({
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+    child: jest.fn(),
+  } as any);
+
 describe('planComponentEndpoints', () => {
-  it('creates one Endpoint per workload endpoint when its visibilities share a type', () => {
+  it('plans one Endpoint per exposed workload endpoint, named after it', () => {
     expect(
       planComponentEndpoints(
         'orders',
         {
-          api: {
-            type: 'HTTP',
-            visibility: ['project', 'internal', 'namespace'],
-          },
+          api: { protocol: 'HTTP', visibility: ['external', 'internal'] },
+          admin: { type: 'HTTP', visibility: ['project'] },
         },
-        [http],
+        [http, managed],
       ),
     ).toEqual([
       {
@@ -51,80 +48,90 @@ describe('planComponentEndpoints', () => {
         workloadEndpoint: 'api',
         typeKind: 'ClusterEndpointType',
         typeName: 'http-route',
-        visibility: ['internal', 'namespace'],
+        visibility: ['external', 'internal'],
       },
     ]);
   });
 
-  it('splits an endpoint whose visibilities map to different types', () => {
-    const planned = planComponentEndpoints(
-      'orders',
-      { api: { type: 'HTTP', visibility: ['external', 'internal'] } },
-      [http, managed],
-    );
-    expect(planned.map(p => [p.name, p.typeName, p.visibility])).toEqual([
-      ['orders-api-managed-api', 'managed-api', ['external']],
-      ['orders-api-http-route', 'http-route', ['internal']],
-    ]);
-  });
-
-  it('skips visibilities and protocols without a default entry', () => {
+  it('uses the developer choices and parameters from the form', () => {
     expect(
       planComponentEndpoints(
         'orders',
         {
-          grpc: { type: 'gRPC', visibility: ['external'] },
-          tcp: { type: 'TCP', visibility: ['internal'] },
-          local: { type: 'HTTP' },
+          api: { protocol: 'HTTP', visibility: ['external'] },
+          web: { protocol: 'HTTP', visibility: ['external'] },
         },
-        [http, grpcOptIn],
+        [http, managed],
+        {
+          api: {
+            type: 'ClusterEndpointType/managed-http',
+            parameters: { requireApiKey: true },
+          },
+          web: { type: 'none' },
+        },
       ),
-    ).toEqual([]);
-  });
-
-  it('defaults an entry without a ref kind to EndpointType', () => {
-    const [planned] = planComponentEndpoints(
-      'orders',
-      { api: { type: 'HTTP', visibility: ['internal'] } },
-      // The API server defaults kind; a raw object may still omit it.
-      [{ ...http, ref: { name: 'ns-route' } as any }],
-    );
-    expect(planned.typeKind).toBe('EndpointType');
+    ).toEqual([
+      {
+        name: 'orders-api',
+        workloadEndpoint: 'api',
+        typeKind: 'ClusterEndpointType',
+        typeName: 'managed-http',
+        visibility: ['external'],
+        parameters: { requireApiKey: true },
+      },
+    ]);
   });
 });
 
-describe('generateComponentEndpoints', () => {
-  const buildClient = (spec: Record<string, unknown> | undefined) => {
-    const GET = jest.fn().mockResolvedValue({
-      data: spec ? { spec } : undefined,
-      error: spec ? undefined : { message: 'not found' },
-      response: { ok: !!spec, status: spec ? 200 : 404 },
-    });
-    const POST = jest.fn().mockResolvedValue({
-      data: {},
-      error: undefined,
-      response: { ok: true, status: 201 },
-    });
-    return { client: { GET, POST } as any, GET, POST };
-  };
+describe('fetchAllowedEndpoints', () => {
+  const opts = (GET: jest.Mock) => ({
+    client: { GET } as any,
+    logger: logger(),
+    namespaceName: 'acme',
+    componentTypeKind: 'ClusterComponentType' as const,
+    componentTypeName: 'service',
+  });
 
-  const baseOptions = (client: any) => ({
-    client,
-    logger: {
-      info: jest.fn(),
-      warn: jest.fn(),
-      error: jest.fn(),
-      debug: jest.fn(),
-      child: jest.fn(),
-    } as any,
+  it('reads the ComponentType allowedEndpoints', async () => {
+    const GET = jest.fn().mockResolvedValue({
+      data: { spec: { allowedEndpoints: [http] } },
+      response: { ok: true, status: 200 },
+    });
+    await expect(fetchAllowedEndpoints(opts(GET))).resolves.toEqual([http]);
+    expect(GET).toHaveBeenCalledWith(
+      '/api/v1/clustercomponenttypes/{cctName}',
+      {
+        params: { path: { cctName: 'service' } },
+      },
+    );
+  });
+
+  it('returns none, without throwing, when the type cannot be read', async () => {
+    const GET = jest.fn().mockResolvedValue({
+      error: { message: 'not found' },
+      response: { ok: false, status: 404 },
+    });
+    await expect(fetchAllowedEndpoints(opts(GET))).resolves.toEqual([]);
+  });
+});
+
+describe('createComponentEndpoints', () => {
+  const planned = [
+    {
+      name: 'orders-api',
+      workloadEndpoint: 'api',
+      typeKind: 'ClusterEndpointType' as const,
+      typeName: 'http-route',
+      visibility: ['internal'],
+    },
+  ];
+  const baseOptions = (POST: jest.Mock) => ({
+    client: { POST } as any,
+    logger: logger(),
     namespaceName: 'acme',
     projectName: 'store',
     componentName: 'orders',
-    componentTypeKind: 'ClusterComponentType' as const,
-    componentTypeName: 'service',
-    workloadEndpoints: {
-      api: { type: 'HTTP', visibility: ['internal'] },
-    },
+    planned,
     autoDeploy: true,
     insertEntity: jest.fn().mockResolvedValue(undefined),
     defaultOwner: 'owners',
@@ -136,19 +143,15 @@ describe('generateComponentEndpoints', () => {
   });
 
   it('creates labeled Endpoints that follow the component autoDeploy', async () => {
-    const { client, GET, POST } = buildClient({ allowedEndpoints: [http] });
-    const opts = baseOptions(client);
+    const POST = jest.fn().mockResolvedValue({
+      data: {},
+      response: { ok: true, status: 201 },
+    });
+    const opts = baseOptions(POST);
 
-    await expect(generateComponentEndpoints(opts)).resolves.toEqual([
+    await expect(createComponentEndpoints(opts)).resolves.toEqual([
       'orders-api',
     ]);
-
-    expect(GET).toHaveBeenCalledWith(
-      '/api/v1/clustercomponenttypes/{cctName}',
-      {
-        params: { path: { cctName: 'service' } },
-      },
-    );
     expect(POST).toHaveBeenCalledWith(
       '/api/v1/namespaces/{namespaceName}/endpoints',
       {
@@ -180,81 +183,13 @@ describe('generateComponentEndpoints', () => {
     expect(opts.insertEntity).toHaveBeenCalledWith({ kind: 'Endpoint' });
   });
 
-  it('creates nothing when the ComponentType has no allowedEndpoints', async () => {
-    const { client, POST } = buildClient({});
-    await expect(
-      generateComponentEndpoints(baseOptions(client)),
-    ).resolves.toEqual([]);
-    expect(POST).not.toHaveBeenCalled();
-  });
-
-  it('creates nothing and does not throw when the ComponentType cannot be read', async () => {
-    const { client, POST } = buildClient(undefined);
-    await expect(
-      generateComponentEndpoints(baseOptions(client)),
-    ).resolves.toEqual([]);
-    expect(POST).not.toHaveBeenCalled();
-  });
-
-  it('uses the developer choices and parameters from the form', async () => {
-    const { client, POST } = buildClient({
-      allowedEndpoints: [http, { ...managed, default: false }],
-    });
-    const opts = {
-      ...baseOptions(client),
-      workloadEndpoints: {
-        api: { type: 'HTTP', visibility: ['external', 'internal'] },
-        admin: { type: 'HTTP', visibility: ['internal'] },
-      },
-      exposures: {
-        api: {
-          types: {
-            external: 'ClusterEndpointType/managed-api',
-            internal: 'ClusterEndpointType/http-route',
-          },
-          parameters: {
-            'ClusterEndpointType/managed-api': { plan: 'gold' },
-          },
-        },
-        admin: { types: { internal: 'none' } },
-      },
-    };
-
-    await expect(generateComponentEndpoints(opts)).resolves.toEqual([
-      'orders-api-managed-api',
-      'orders-api-http-route',
-    ]);
-    const bodies = POST.mock.calls.map(c => c[1].body);
-    expect(bodies[0].spec).toMatchObject({
-      type: { kind: 'ClusterEndpointType', name: 'managed-api' },
-      visibility: ['external'],
-      parameters: { plan: 'gold' },
-    });
-    expect(bodies[1].spec).toMatchObject({
-      type: { kind: 'ClusterEndpointType', name: 'http-route' },
-      visibility: ['internal'],
-    });
-    expect(bodies[1].spec.parameters).toBeUndefined();
-  });
-
   it('skips an Endpoint the API rejects and keeps going', async () => {
-    const { client, POST } = buildClient({ allowedEndpoints: [http] });
-    POST.mockResolvedValueOnce({
-      data: undefined,
+    const POST = jest.fn().mockResolvedValue({
       error: { message: 'conflict' },
       response: { ok: false, status: 409 },
     });
-    const opts = {
-      ...baseOptions(client),
-      workloadEndpoints: {
-        api: { type: 'HTTP', visibility: ['internal'] },
-        admin: { type: 'HTTP', visibility: ['namespace'] },
-      },
-    };
-
-    await expect(generateComponentEndpoints(opts)).resolves.toEqual([
-      'orders-admin',
-    ]);
-    expect(POST).toHaveBeenCalledTimes(2);
+    await expect(createComponentEndpoints(baseOptions(POST))).resolves.toEqual(
+      [],
+    );
   });
 });

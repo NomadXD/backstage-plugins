@@ -15,6 +15,7 @@ import {
   CHOREO_ANNOTATIONS,
   ComponentTypeUtils,
   parseWorkflowParametersAnnotation,
+  workloadEndpointsForSave,
 } from '@openchoreo/backstage-plugin-common';
 import {
   type ImmediateCatalogService,
@@ -23,7 +24,9 @@ import {
 } from '@openchoreo/backstage-plugin-catalog-backend-module';
 import type { AuthService } from '@backstage/backend-plugin-api';
 import {
-  generateComponentEndpoints,
+  createComponentEndpoints,
+  fetchAllowedEndpoints,
+  planComponentEndpoints,
   type WorkloadEndpointLike,
 } from './componentEndpoints';
 
@@ -572,6 +575,34 @@ export const createComponentAction = (
               : undefined,
           });
 
+          // Plan the Endpoints before creating the workload: a workload
+          // endpoint exposed through an Endpoint keeps only project
+          // visibility, since the Endpoint carries the rest. Without
+          // allowedEndpoints nothing is planned and the workload keeps its
+          // visibility, which the ComponentType's own templates read.
+          const allowedEndpoints = await fetchAllowedEndpoints({
+            client,
+            logger: ctx.logger,
+            namespaceName,
+            componentTypeKind,
+            componentTypeName: ctx.input.componentType,
+          });
+          const plannedEndpoints = planComponentEndpoints(
+            ctx.input.componentName,
+            (workloadResource.spec.endpoints ?? {}) as Record<
+              string,
+              WorkloadEndpointLike
+            >,
+            allowedEndpoints,
+            workloadDetails?.endpointExposures,
+          );
+          if (workloadResource.spec.endpoints) {
+            workloadResource.spec.endpoints = workloadEndpointsForSave(
+              workloadResource.spec.endpoints,
+              plannedEndpoints.map(p => p.workloadEndpoint),
+            );
+          }
+
           ctx.logger.debug(
             `Creating Workload resource: ${JSON.stringify(workloadResource)}`,
           );
@@ -601,21 +632,15 @@ export const createComponentAction = (
               `Workload created successfully: ${JSON.stringify(workloadData)}`,
             );
 
-            // Expose the workload endpoints through Endpoints when the
-            // ComponentType declares allowedEndpoints. The Endpoint
-            // controller makes this component their owner and, with
-            // autoDeploy, deploys them alongside it.
-            const createdEndpoints = await generateComponentEndpoints({
+            // The Endpoint controller makes this component their owner
+            // and, with autoDeploy, deploys them alongside it.
+            const createdEndpoints = await createComponentEndpoints({
               client,
               logger: ctx.logger,
               namespaceName,
               projectName,
               componentName: ctx.input.componentName,
-              componentTypeKind,
-              componentTypeName: ctx.input.componentType,
-              workloadEndpoints: (workloadResource.spec.endpoints ??
-                {}) as Record<string, WorkloadEndpointLike>,
-              exposures: workloadDetails?.endpointExposures,
+              planned: plannedEndpoints,
               autoDeploy,
               insertEntity: entity => immediateCatalog.insertEntity(entity),
               defaultOwner:

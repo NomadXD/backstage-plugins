@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Box,
   CircularProgress,
@@ -13,10 +13,12 @@ import { JSONSchema7 } from 'json-schema';
 import { RjsfForm } from '@openchoreo/backstage-design-system';
 import {
   NO_ENDPOINT,
+  endpointProtocol,
   endpointTypeCandidates,
   endpointTypeKey,
   exposableVisibilities,
-  resolveEndpointTypes,
+  parseEndpointTypeKey,
+  resolveEndpointType,
   type AllowedEndpointTypeEntry,
   type EndpointExposureChoice,
   type EndpointExposures,
@@ -26,25 +28,24 @@ import { openChoreoClientApiRef } from '../../api/OpenChoreoClientApi';
 import { generateUiSchemaWithTitles } from '../utils/rjsfUtils';
 
 const useStyles = makeStyles(theme => ({
-  choice: {
-    marginBottom: theme.spacing(1.5),
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: theme.spacing(1),
   },
   select: {
     minWidth: 260,
   },
-  typeBlock: {
-    '& + &': {
-      marginTop: theme.spacing(2),
-    },
-  },
-  typeHeading: {
-    fontWeight: 600,
-    fontSize: '0.875rem',
-    marginBottom: theme.spacing(1),
-  },
-  typeVisibilities: {
-    fontWeight: 400,
+  placeholder: {
     color: theme.palette.text.secondary,
+  },
+  note: {
+    fontSize: '0.8125rem',
+    color: theme.palette.text.secondary,
+  },
+  parameters: {
+    marginTop: theme.spacing(1.5),
   },
   parametersHeading: {
     fontSize: '0.8125rem',
@@ -55,17 +56,8 @@ const useStyles = makeStyles(theme => ({
 
 export type SchemaState = JSONSchema7 | 'loading' | 'error';
 
-function typeLabel(entry: AllowedEndpointTypeEntry): string {
-  const alias = entry.name ? ` (${entry.name})` : '';
-  return `${entry.ref.name}${alias}${entry.default ? ' — default' : ''}`;
-}
-
-function splitKey(key: string) {
-  const slash = key.indexOf('/');
-  return {
-    kind: key.slice(0, slash) as 'EndpointType' | 'ClusterEndpointType',
-    name: key.slice(slash + 1),
-  };
+function entryLabel(entry: AllowedEndpointTypeEntry): string {
+  return entry.name ? `${entry.ref.name} (${entry.name})` : entry.ref.name;
 }
 
 function hasProperties(schema: JSONSchema7): boolean {
@@ -73,50 +65,36 @@ function hasProperties(schema: JSONSchema7): boolean {
 }
 
 /**
- * The EndpointType per exposable visibility as the form presents it: the
- * developer's choice or the default, except that a visibility with exactly one
- * allowed EndpointType always uses it, since the form offers no choice there.
- */
-export function formEndpointTypes(
-  endpoint: ExposableEndpoint,
-  allowedEndpoints: AllowedEndpointTypeEntry[],
-  choice?: EndpointExposureChoice,
-): Record<string, string> {
-  const types = resolveEndpointTypes(endpoint, allowedEndpoints, choice);
-  for (const visibility of Object.keys(types)) {
-    const candidates = endpointTypeCandidates(
-      endpoint.type,
-      visibility,
-      allowedEndpoints,
-    );
-    if (candidates.length === 1) {
-      types[visibility] = endpointTypeKey(candidates[0].ref);
-    }
-  }
-  return types;
-}
-
-/**
- * The exposures the form submits: one explicit choice per workload endpoint
- * that can be exposed, so the scaffolder action creates exactly what the form
- * showed. Choices for endpoints that no longer exist are dropped.
+ * The exposure choice the form submits for every workload endpoint that can
+ * be exposed through an Endpoint: the resolved EndpointType (or none) and
+ * its parameters. Choices for endpoints that no longer exist are dropped.
  */
 export function formExposures(
   endpoints: Record<string, ExposableEndpoint>,
   allowedEndpoints: AllowedEndpointTypeEntry[],
   exposures: EndpointExposures,
 ): EndpointExposures {
-  if (allowedEndpoints.length === 0) {
-    return {};
-  }
   const out: EndpointExposures = {};
   for (const [name, endpoint] of Object.entries(endpoints)) {
-    if (exposableVisibilities(endpoint).length === 0) continue;
+    if (
+      exposableVisibilities(endpoint).length === 0 ||
+      endpointTypeCandidates(endpointProtocol(endpoint), allowedEndpoints)
+        .length === 0
+    ) {
+      continue;
+    }
+    const type = resolveEndpointType(
+      endpoint,
+      allowedEndpoints,
+      exposures[name],
+    );
     out[name] = {
-      types: formEndpointTypes(endpoint, allowedEndpoints, exposures[name]),
-      ...(exposures[name]?.parameters && {
-        parameters: exposures[name].parameters,
-      }),
+      type,
+      ...(type !== NO_ENDPOINT &&
+        exposures[name]?.type === type &&
+        exposures[name]?.parameters && {
+          parameters: exposures[name].parameters,
+        }),
     };
   }
   return out;
@@ -132,9 +110,7 @@ export function chosenEndpointTypeKeys(
   for (const choice of Object.values(
     formExposures(endpoints, allowedEndpoints, exposures),
   )) {
-    for (const key of Object.values(choice.types)) {
-      if (key !== NO_ENDPOINT) keys.add(key);
-    }
+    if (choice.type !== NO_ENDPOINT) keys.add(choice.type);
   }
   return [...keys].sort();
 }
@@ -159,7 +135,7 @@ export function useEndpointTypeSchemas(
       ...Object.fromEntries(missing.map(k => [k, 'loading' as const])),
     }));
     for (const key of missing) {
-      const { kind, name } = splitKey(key);
+      const { kind, name } = parseEndpointTypeKey(key);
       client
         .fetchEndpointTypeParametersSchema(kind, name, namespaceName)
         .then(result =>
@@ -176,17 +152,30 @@ export function useEndpointTypeSchemas(
 }
 
 interface EndpointExposureProps {
+  /** The workload endpoint as currently edited. */
   endpoint: ExposableEndpoint;
   allowedEndpoints: AllowedEndpointTypeEntry[];
   choice?: EndpointExposureChoice;
   schemas: Record<string, SchemaState>;
   onChange: (choice: EndpointExposureChoice) => void;
+  /** Shown next to the field, e.g. the existing Endpoint and its state. */
+  status?: ReactNode;
+  /**
+   * The row is already exposed through an Endpoint, whose type cannot
+   * change: the choice is shown but fixed.
+   */
+  typeLocked?: boolean;
+  /** Shown instead of the default note when the choice changes nothing. */
+  notice?: ReactNode;
+  disabled?: boolean;
 }
 
 /**
- * How one workload endpoint is exposed, shown inside its row: a dropdown for
- * each visibility where more than one EndpointType is allowed, then for each
- * EndpointType in use its name as a heading followed by its parameters.
+ * How one workload endpoint is exposed, shown inside its row once it has a
+ * visibility beyond project: an "Exposed via" choice of the EndpointTypes
+ * allowed for its protocol, or none, and the chosen type's parameters. With
+ * none (or no type allowed for the protocol) the visibility stays on the
+ * workload, in the deprecated field the ComponentType's templates read.
  */
 export const EndpointExposure = ({
   endpoint,
@@ -194,113 +183,124 @@ export const EndpointExposure = ({
   choice,
   schemas,
   onChange,
+  status,
+  typeLocked,
+  notice,
+  disabled,
 }: EndpointExposureProps) => {
   const classes = useStyles();
   const visibilities = exposableVisibilities(endpoint);
+  const candidates = endpointTypeCandidates(
+    endpointProtocol(endpoint),
+    allowedEndpoints,
+  );
   if (visibilities.length === 0) {
-    return null;
+    return notice ? <Box className={classes.note}>{notice}</Box> : null;
   }
 
-  const types = formEndpointTypes(endpoint, allowedEndpoints, choice);
-  const keys = [...new Set(Object.values(types))].filter(
-    k => k !== NO_ENDPOINT,
+  const deprecatedNote = (
+    <Typography className={classes.note}>
+      {visibilities.join(', ')} visibility is stored on the workload
+      (deprecated) and served by the component type's own routes, if it defines
+      any.
+    </Typography>
   );
+  if (candidates.length === 0) {
+    return notice ? (
+      <Box className={classes.note}>{notice}</Box>
+    ) : (
+      deprecatedNote
+    );
+  }
 
-  const setType = (visibility: string, key: string) =>
-    onChange({ ...choice, types: { ...types, [visibility]: key } });
+  const type = resolveEndpointType(endpoint, allowedEndpoints, choice);
+  const labelOf = (key: string) => {
+    const entry = candidates.find(c => endpointTypeKey(c.ref) === key);
+    return entry ? entryLabel(entry) : parseEndpointTypeKey(key).name;
+  };
+  const parameters =
+    choice?.type === type ? choice?.parameters ?? {} : ({} as const);
 
-  const setParameters = (key: string, parameters: Record<string, unknown>) =>
-    onChange({
-      types,
-      parameters: { ...choice?.parameters, [key]: parameters },
-    });
-
-  // Only a visibility with a real choice gets a dropdown; a single allowed
-  // EndpointType is simply used.
-  const choosable = visibilities.filter(
-    v => endpointTypeCandidates(endpoint.type, v, allowedEndpoints).length > 1,
-  );
-  // With one EndpointType in use the header names it alone; with several,
-  // each header says which visibilities it exposes.
-  const visibilitiesOf = (key: string) =>
-    visibilities.filter(v => types[v] === key).join(', ');
+  let body: ReactNode = notice ?? deprecatedNote;
+  if (type !== NO_ENDPOINT) {
+    const schema = schemas[type];
+    const { name: typeName } = parseEndpointTypeKey(type);
+    if (schema === undefined || schema === 'loading') {
+      body = <CircularProgress size={20} />;
+    } else if (schema === 'error') {
+      body = (
+        <Alert severity="warning">
+          Could not load the parameters of {typeName}; its defaults will be
+          used.
+        </Alert>
+      );
+    } else if (hasProperties(schema)) {
+      body = (
+        <>
+          <Typography className={classes.parametersHeading}>
+            Parameters
+          </Typography>
+          <RjsfForm
+            schema={schema}
+            uiSchema={generateUiSchemaWithTitles(schema)}
+            formData={parameters}
+            onChange={(e: any) =>
+              onChange({ type, parameters: e.formData ?? {} })
+            }
+            disabled={disabled}
+            tagName="div"
+          />
+        </>
+      );
+    } else {
+      body = notice ?? null;
+    }
+  }
 
   return (
     <Box>
-      {choosable.map(visibility => (
-        <Box key={visibility} className={classes.choice}>
-          <TextField
-            select
-            variant="outlined"
-            size="small"
-            className={classes.select}
-            label={`Endpoint type (${visibility})`}
-            value={types[visibility]}
-            onChange={e => setType(visibility, e.target.value)}
-          >
-            {endpointTypeCandidates(
-              endpoint.type,
-              visibility,
-              allowedEndpoints,
-            ).map(entry => (
-              <MenuItem
-                key={endpointTypeKey(entry.ref)}
-                value={endpointTypeKey(entry.ref)}
-              >
-                {typeLabel(entry)}
-              </MenuItem>
-            ))}
-            <MenuItem value={NO_ENDPOINT}>
-              No Endpoint (component type routes)
-            </MenuItem>
-          </TextField>
-        </Box>
-      ))}
-
-      {keys.map(key => {
-        const schema = schemas[key];
-        const { name: typeName } = splitKey(key);
-        let parameters;
-        if (schema === 'loading' || schema === undefined) {
-          parameters = <CircularProgress size={20} />;
-        } else if (schema === 'error') {
-          parameters = (
-            <Alert severity="warning">
-              Could not load the parameters of {typeName}; its defaults will be
-              used.
-            </Alert>
-          );
-        } else if (hasProperties(schema)) {
-          parameters = (
-            <>
-              <Typography className={classes.parametersHeading}>
-                Parameters
-              </Typography>
-              <RjsfForm
-                schema={schema}
-                uiSchema={generateUiSchemaWithTitles(schema)}
-                formData={choice?.parameters?.[key] ?? {}}
-                onChange={(e: any) => setParameters(key, e.formData ?? {})}
-                tagName="div"
-              />
-            </>
-          );
-        }
-        return (
-          <Box key={key} className={classes.typeBlock}>
-            <Typography className={classes.typeHeading}>
-              EndpointType: {typeName}
-              {keys.length > 1 && (
-                <span className={classes.typeVisibilities}>
-                  {' '}
-                  ({visibilitiesOf(key)})
+      <Box className={classes.row}>
+        <TextField
+          select
+          variant="outlined"
+          size="small"
+          className={classes.select}
+          label="Exposed via"
+          // An existing component's endpoint not yet moved to an Endpoint
+          // has no type: the field stays empty until one is chosen.
+          value={type === NO_ENDPOINT ? '' : type}
+          disabled={disabled || typeLocked}
+          InputLabelProps={{ shrink: true }}
+          SelectProps={{
+            displayEmpty: true,
+            renderValue: value =>
+              value ? (
+                labelOf(value as string)
+              ) : (
+                <span className={classes.placeholder}>
+                  Choose an endpoint type
                 </span>
-              )}
-            </Typography>
-            {parameters}
-          </Box>
-        );
-      })}
+              ),
+          }}
+          helperText={
+            typeLocked
+              ? "An Endpoint's type is fixed once created. Clear the visibility beyond project to delete it."
+              : undefined
+          }
+          onChange={e => onChange({ type: e.target.value })}
+        >
+          {candidates.map(entry => (
+            <MenuItem
+              key={endpointTypeKey(entry.ref)}
+              value={endpointTypeKey(entry.ref)}
+            >
+              {entryLabel(entry)}
+            </MenuItem>
+          ))}
+        </TextField>
+        {status}
+      </Box>
+      {body && <Box className={classes.parameters}>{body}</Box>}
     </Box>
   );
 };

@@ -4,7 +4,6 @@ import { useEntity } from '@backstage/plugin-catalog-react';
 import {
   CHOREO_ANNOTATIONS,
   WorkloadEndpoint,
-  endpointTypeKey,
 } from '@openchoreo/backstage-plugin-common';
 import {
   EndpointList,
@@ -12,11 +11,17 @@ import {
 } from '@openchoreo/backstage-plugin-react';
 import { useWorkloadContext } from '../WorkloadContext';
 import type { ComponentEndpointsState } from '../hooks/useComponentEndpoints';
-import { useEndpointTypeSchemas } from '../../../../scaffolder/WorkloadDetailsField/EndpointExposure';
+import {
+  EndpointExposure,
+  chosenEndpointTypeKeys,
+  useEndpointTypeSchemas,
+} from '../../../../scaffolder/WorkloadDetailsField/EndpointExposure';
 import {
   ComponentEndpointExposure,
   DetachedComponentEndpoints,
 } from './ComponentEndpointExposure';
+
+const NO_ALLOWED_ENDPOINTS: never[] = [];
 
 interface EndpointContentProps {
   endpoints: { [key: string]: WorkloadEndpoint };
@@ -74,17 +79,14 @@ export const EndpointContent: FC<EndpointContentProps> = ({
   }, [editBuffer.isAnyRowEditing, setEditingSection]);
 
   const showEndpoints = !!componentEndpoints?.enabled;
-  const drafts = componentEndpoints?.drafts;
+  const choices = componentEndpoints?.choices;
+  const allowedEndpoints = componentEndpoints?.allowedEndpoints;
   const typeKeys = useMemo(
     () =>
-      [
-        ...new Set(
-          (drafts ?? []).map(d =>
-            endpointTypeKey({ kind: d.typeKind, name: d.typeName }),
-          ),
-        ),
-      ].sort(),
-    [drafts],
+      showEndpoints && allowedEndpoints && choices
+        ? chosenEndpointTypeKeys(endpoints, allowedEndpoints, choices)
+        : [],
+    [showEndpoints, endpoints, allowedEndpoints, choices],
   );
   const schemas = useEndpointTypeSchemas(
     typeKeys,
@@ -105,25 +107,31 @@ export const EndpointContent: FC<EndpointContentProps> = ({
         editBuffer={editBuffer}
         onRemoveEndpoint={onRemoveEndpoint}
         onAddEndpoint={onAddEndpoint}
-        renderDetails={
-          showEndpoints && componentEndpoints
-            ? (_name, endpoint, savedName) => (
-                <ComponentEndpointExposure
-                  workloadEndpoint={savedName}
-                  endpoint={endpoint}
-                  state={componentEndpoints}
-                  schemas={schemas}
-                  disabled={disabled}
-                />
-              )
-            : undefined
+        renderDetails={(_name, endpoint, savedName) =>
+          showEndpoints && componentEndpoints ? (
+            <ComponentEndpointExposure
+              workloadEndpoint={savedName}
+              endpoint={endpoint}
+              state={componentEndpoints}
+              schemas={schemas}
+              disabled={disabled}
+            />
+          ) : (
+            // No Endpoints for this component type: say where visibility
+            // goes, which is the deprecated workload field.
+            <EndpointExposure
+              endpoint={endpoint}
+              allowedEndpoints={NO_ALLOWED_ENDPOINTS}
+              schemas={schemas}
+              onChange={() => {}}
+            />
+          )
         }
       />
       {showEndpoints && componentEndpoints && (
         <DetachedComponentEndpoints
           workloadEndpoints={endpoints}
           state={componentEndpoints}
-          disabled={disabled}
         />
       )}
     </>
