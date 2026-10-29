@@ -31,8 +31,6 @@ import type { TraitListItem } from '../TraitsField/TraitCard';
 import type { AddedTrait } from '../TraitsField/TraitsFieldExtension';
 
 import {
-  EndpointList,
-  useEndpointEditBuffer,
   StandardEnvVarList,
   StandardFileVarList,
   useEnvVarEditBuffer,
@@ -44,23 +42,11 @@ import {
 import { RjsfForm } from '@openchoreo/backstage-design-system';
 import type { SecretOption } from '@openchoreo/backstage-design-system';
 import type {
-  WorkloadEndpoint as CommonWorkloadEndpoint,
   EnvVar,
   FileVar,
   Container,
 } from '@openchoreo/backstage-plugin-common';
-import type {
-  AllowedEndpointTypeEntry,
-  EndpointExposureChoice,
-  EndpointExposures,
-} from '@openchoreo/backstage-plugin-common';
 import { openChoreoClientApiRef } from '../../api/OpenChoreoClientApi';
-import {
-  EndpointExposure,
-  chosenEndpointTypeKeys,
-  formExposures,
-  useEndpointTypeSchemas,
-} from './EndpointExposure';
 
 const CONTAINER_NAME = 'main';
 
@@ -169,17 +155,11 @@ const useStyles = makeStyles(theme => ({
 }));
 
 /**
- * Data shape returned by WorkloadDetailsField
+ * Data shape returned by WorkloadDetailsField. It carries no endpoints: a
+ * component's endpoints are defined on its configure page after creation.
  */
 export interface WorkloadDetailsData {
   ctdParameters: Record<string, any>;
-  endpoints: Record<string, WorkloadEndpoint>;
-  /**
-   * The EndpointType and parameters chosen per workload endpoint, used to
-   * create the component's Endpoints when its ComponentType declares
-   * allowedEndpoints.
-   */
-  endpointExposures?: EndpointExposures;
   envVars: EnvVar[];
   fileMounts: FileVar[];
   traits: Array<{
@@ -199,8 +179,6 @@ export const WorkloadDetailsFieldSchema = {
     additionalProperties: true,
   },
 };
-
-type WorkloadEndpoint = CommonWorkloadEndpoint;
 
 /**
  * Trait accordion item that manages instance name and config as local state.
@@ -345,7 +323,6 @@ const TraitInstanceAccordion = ({
  *
  * Composite field extension that consolidates:
  * - CTD parameters (mandatory + advanced accordion)
- * - Endpoints (for deployment/* types)
  * - Environment variables
  * - File mounts
  * - Traits
@@ -387,27 +364,12 @@ export const WorkloadDetailsField = ({
   const allowedTraits = uiSchema?.['ui:options']?.allowedTraits as
     | Array<{ kind?: string; name: string }>
     | undefined;
-  const allowedEndpointsOption = uiSchema?.['ui:options']?.allowedEndpoints as
-    | AllowedEndpointTypeEntry[]
-    | undefined;
-  const allowedEndpoints = useMemo(
-    () => allowedEndpointsOption ?? [],
-    [allowedEndpointsOption],
-  );
   const isDeploymentType = workloadType.startsWith('deployment');
 
   // State
   const [ctdParameters, setCtdParameters] = useState<Record<string, any>>(
     formData?.ctdParameters || {},
   );
-  const [endpoints, setEndpoints] = useState<Record<string, WorkloadEndpoint>>(
-    formData?.endpoints || {},
-  );
-  const [endpointExposures, setEndpointExposures] = useState<EndpointExposures>(
-    formData?.endpointExposures || {},
-  );
-  // Read by emitChange, so its many call sites need not thread exposures.
-  const endpointExposuresRef = useRef(endpointExposures);
   const [envVars, setEnvVars] = useState<EnvVar[]>(formData?.envVars || []);
   const [fileMounts, setFileMounts] = useState<FileVar[]>(
     formData?.fileMounts || [],
@@ -440,21 +402,12 @@ export const WorkloadDetailsField = ({
   const emitChange = useCallback(
     (
       newCtd: Record<string, any>,
-      newEndpoints: Record<string, WorkloadEndpoint>,
       newEnvVars: EnvVar[],
       newFileMounts: FileVar[],
       newTraits: AddedTrait[],
     ) => {
       onChange({
         ctdParameters: newCtd,
-        endpoints: isFromImage ? newEndpoints : {},
-        endpointExposures: isFromImage
-          ? formExposures(
-              newEndpoints,
-              allowedEndpoints,
-              endpointExposuresRef.current,
-            )
-          : {},
         envVars: isFromImage ? newEnvVars : [],
         fileMounts: isFromImage ? newFileMounts : [],
         traits: newTraits.map(t => ({
@@ -466,7 +419,7 @@ export const WorkloadDetailsField = ({
         isEditing: isAnyEditorActiveRef.current,
       });
     },
-    [onChange, isFromImage, allowedEndpoints],
+    [onChange, isFromImage],
   );
 
   // ── Container wrapper for hooks ─────────────────────────────────
@@ -612,104 +565,19 @@ export const WorkloadDetailsField = ({
     (changeEvent: any) => {
       const newCtd = { ...ctdParameters, ...changeEvent.formData };
       setCtdParameters(newCtd);
-      emitChange(newCtd, endpoints, envVars, fileMounts, addedTraits);
+      emitChange(newCtd, envVars, fileMounts, addedTraits);
     },
-    [ctdParameters, endpoints, envVars, fileMounts, addedTraits, emitChange],
+    [ctdParameters, envVars, fileMounts, addedTraits, emitChange],
   );
 
   const handleCtdAdvancedChange = useCallback(
     (changeEvent: any) => {
       const newCtd = { ...ctdParameters, ...changeEvent.formData };
       setCtdParameters(newCtd);
-      emitChange(newCtd, endpoints, envVars, fileMounts, addedTraits);
-    },
-    [ctdParameters, endpoints, envVars, fileMounts, addedTraits, emitChange],
-  );
-
-  // ── Endpoints ──────────────────────────────────────────────────
-
-  const handleEndpointChange = useCallback(
-    (newEndpoints: Record<string, WorkloadEndpoint>) => {
-      setEndpoints(newEndpoints);
-      emitChange(ctdParameters, newEndpoints, envVars, fileMounts, addedTraits);
+      emitChange(newCtd, envVars, fileMounts, addedTraits);
     },
     [ctdParameters, envVars, fileMounts, addedTraits, emitChange],
   );
-
-  const endpointEditBuffer = useEndpointEditBuffer({
-    endpoints,
-    onEndpointReplace: (
-      name: string,
-      endpoint: WorkloadEndpoint,
-      oldNameToRemove?: string,
-    ) => {
-      const newEndpoints = { ...endpoints, [name]: endpoint };
-      if (oldNameToRemove && oldNameToRemove !== name) {
-        delete newEndpoints[oldNameToRemove];
-        // A renamed endpoint keeps the exposure chosen under its old name,
-        // unless one was already chosen under the new name while editing.
-        const exposures = endpointExposuresRef.current;
-        if (exposures[oldNameToRemove] && !exposures[name]) {
-          const moved = { ...exposures, [name]: exposures[oldNameToRemove] };
-          delete moved[oldNameToRemove];
-          endpointExposuresRef.current = moved;
-          setEndpointExposures(moved);
-        }
-      }
-      handleEndpointChange(newEndpoints);
-    },
-    onRemoveEndpoint: (name: string) => {
-      const newEndpoints = { ...endpoints };
-      delete newEndpoints[name];
-      handleEndpointChange(newEndpoints);
-    },
-  });
-
-  const handleRemoveEndpoint = useCallback(
-    (name: string) => {
-      const newEndpoints = { ...endpoints };
-      delete newEndpoints[name];
-      handleEndpointChange(newEndpoints);
-    },
-    [endpoints, handleEndpointChange],
-  );
-
-  const handleExposureChange = useCallback(
-    (endpointName: string, choice: EndpointExposureChoice) => {
-      const newExposures = {
-        ...endpointExposuresRef.current,
-        [endpointName]: choice,
-      };
-      endpointExposuresRef.current = newExposures;
-      setEndpointExposures(newExposures);
-      emitChange(ctdParameters, endpoints, envVars, fileMounts, addedTraits);
-    },
-    [ctdParameters, endpoints, envVars, fileMounts, addedTraits, emitChange],
-  );
-
-  const endpointTypeSchemas = useEndpointTypeSchemas(
-    useMemo(
-      () =>
-        chosenEndpointTypeKeys(endpoints, allowedEndpoints, endpointExposures),
-      [endpoints, allowedEndpoints, endpointExposures],
-    ),
-    namespaceName,
-  );
-
-  const handleAddEndpoint = useCallback((): string => {
-    const name = `endpoint-${Object.keys(endpoints).length + 1}`;
-    const newEndpoint: WorkloadEndpoint = {
-      type: 'HTTP',
-      port: 8080,
-      visibility: ['external'],
-    };
-    const newEndpoints: Record<string, WorkloadEndpoint> = {
-      ...endpoints,
-      [name]: newEndpoint,
-    };
-    handleEndpointChange(newEndpoints);
-    return name;
-  }, [endpoints, handleEndpointChange]);
 
   // ── Environment Variables ─────────────────────────────────────
 
@@ -718,19 +586,19 @@ export const WorkloadDetailsField = ({
     onEnvVarReplace: (_cn, index, envVar) => {
       const newEnvVars = envVars.map((ev, i) => (i === index ? envVar : ev));
       setEnvVars(newEnvVars);
-      emitChange(ctdParameters, endpoints, newEnvVars, fileMounts, addedTraits);
+      emitChange(ctdParameters, newEnvVars, fileMounts, addedTraits);
     },
     onEnvVarChange: (_cn, index, field, value) => {
       const newEnvVars = envVars.map((ev, i) =>
         i === index ? { ...ev, [field]: value } : ev,
       );
       setEnvVars(newEnvVars);
-      emitChange(ctdParameters, endpoints, newEnvVars, fileMounts, addedTraits);
+      emitChange(ctdParameters, newEnvVars, fileMounts, addedTraits);
     },
     onRemoveEnvVar: (_cn, index) => {
       const newEnvVars = envVars.filter((_, i) => i !== index);
       setEnvVars(newEnvVars);
-      emitChange(ctdParameters, endpoints, newEnvVars, fileMounts, addedTraits);
+      emitChange(ctdParameters, newEnvVars, fileMounts, addedTraits);
     },
   });
 
@@ -738,9 +606,9 @@ export const WorkloadDetailsField = ({
     (_containerName: string) => {
       const newEnvVars = [...envVars, { key: '', value: '' }];
       setEnvVars(newEnvVars);
-      emitChange(ctdParameters, endpoints, newEnvVars, fileMounts, addedTraits);
+      emitChange(ctdParameters, newEnvVars, fileMounts, addedTraits);
     },
-    [envVars, ctdParameters, endpoints, fileMounts, addedTraits, emitChange],
+    [envVars, ctdParameters, fileMounts, addedTraits, emitChange],
   );
 
   const handleEnvVarChange = useCallback(
@@ -754,18 +622,18 @@ export const WorkloadDetailsField = ({
         i === index ? { ...ev, [field]: value } : ev,
       );
       setEnvVars(newEnvVars);
-      emitChange(ctdParameters, endpoints, newEnvVars, fileMounts, addedTraits);
+      emitChange(ctdParameters, newEnvVars, fileMounts, addedTraits);
     },
-    [envVars, ctdParameters, endpoints, fileMounts, addedTraits, emitChange],
+    [envVars, ctdParameters, fileMounts, addedTraits, emitChange],
   );
 
   const handleRemoveEnvVar = useCallback(
     (_containerName: string, index: number) => {
       const newEnvVars = envVars.filter((_, i) => i !== index);
       setEnvVars(newEnvVars);
-      emitChange(ctdParameters, endpoints, newEnvVars, fileMounts, addedTraits);
+      emitChange(ctdParameters, newEnvVars, fileMounts, addedTraits);
     },
-    [envVars, ctdParameters, endpoints, fileMounts, addedTraits, emitChange],
+    [envVars, ctdParameters, fileMounts, addedTraits, emitChange],
   );
 
   const handleEnvVarModeChange = useCallback(
@@ -782,9 +650,9 @@ export const WorkloadDetailsField = ({
         };
       });
       setEnvVars(newEnvVars);
-      emitChange(ctdParameters, endpoints, newEnvVars, fileMounts, addedTraits);
+      emitChange(ctdParameters, newEnvVars, fileMounts, addedTraits);
     },
-    [envVars, ctdParameters, endpoints, fileMounts, addedTraits, emitChange],
+    [envVars, ctdParameters, fileMounts, addedTraits, emitChange],
   );
 
   // ── File Mounts ───────────────────────────────────────────────
@@ -796,24 +664,23 @@ export const WorkloadDetailsField = ({
         i === index ? fileVar : fm,
       );
       setFileMounts(newFileMounts);
-      emitChange(ctdParameters, endpoints, envVars, newFileMounts, addedTraits);
+      emitChange(ctdParameters, envVars, newFileMounts, addedTraits);
     },
     onFileVarChange: (_cn, index, field, value) => {
       const newFileMounts = fileMounts.map((fm, i) =>
         i === index ? { ...fm, [field]: value } : fm,
       );
       setFileMounts(newFileMounts);
-      emitChange(ctdParameters, endpoints, envVars, newFileMounts, addedTraits);
+      emitChange(ctdParameters, envVars, newFileMounts, addedTraits);
     },
     onRemoveFileVar: (_cn, index) => {
       const newFileMounts = fileMounts.filter((_, i) => i !== index);
       setFileMounts(newFileMounts);
-      emitChange(ctdParameters, endpoints, envVars, newFileMounts, addedTraits);
+      emitChange(ctdParameters, envVars, newFileMounts, addedTraits);
     },
   });
 
   const isAnyEditorActive =
-    endpointEditBuffer.isAnyRowEditing ||
     envEditBuffer.isAnyRowEditing ||
     fileEditBuffer.isAnyRowEditing;
   isAnyEditorActiveRef.current = isAnyEditorActive;
@@ -822,14 +689,6 @@ export const WorkloadDetailsField = ({
   useEffect(() => {
     onChange({
       ctdParameters,
-      endpoints: isFromImage ? endpoints : {},
-      endpointExposures: isFromImage
-        ? formExposures(
-            endpoints,
-            allowedEndpoints,
-            endpointExposuresRef.current,
-          )
-        : {},
       envVars: isFromImage ? envVars : [],
       fileMounts: isFromImage ? fileMounts : [],
       traits: addedTraits.map(t => ({
@@ -850,9 +709,9 @@ export const WorkloadDetailsField = ({
         { key: '', mountPath: '', value: '' },
       ];
       setFileMounts(newFileMounts);
-      emitChange(ctdParameters, endpoints, envVars, newFileMounts, addedTraits);
+      emitChange(ctdParameters, envVars, newFileMounts, addedTraits);
     },
-    [fileMounts, ctdParameters, endpoints, envVars, addedTraits, emitChange],
+    [fileMounts, ctdParameters, envVars, addedTraits, emitChange],
   );
 
   const handleFileVarChange = useCallback(
@@ -866,18 +725,18 @@ export const WorkloadDetailsField = ({
         i === index ? { ...fm, [field]: value } : fm,
       );
       setFileMounts(newFileMounts);
-      emitChange(ctdParameters, endpoints, envVars, newFileMounts, addedTraits);
+      emitChange(ctdParameters, envVars, newFileMounts, addedTraits);
     },
-    [fileMounts, ctdParameters, endpoints, envVars, addedTraits, emitChange],
+    [fileMounts, ctdParameters, envVars, addedTraits, emitChange],
   );
 
   const handleRemoveFileVar = useCallback(
     (_containerName: string, index: number) => {
       const newFileMounts = fileMounts.filter((_, i) => i !== index);
       setFileMounts(newFileMounts);
-      emitChange(ctdParameters, endpoints, envVars, newFileMounts, addedTraits);
+      emitChange(ctdParameters, envVars, newFileMounts, addedTraits);
     },
-    [fileMounts, ctdParameters, endpoints, envVars, addedTraits, emitChange],
+    [fileMounts, ctdParameters, envVars, addedTraits, emitChange],
   );
 
   const handleFileVarModeChange = useCallback(
@@ -894,9 +753,9 @@ export const WorkloadDetailsField = ({
         };
       });
       setFileMounts(newFileMounts);
-      emitChange(ctdParameters, endpoints, envVars, newFileMounts, addedTraits);
+      emitChange(ctdParameters, envVars, newFileMounts, addedTraits);
     },
-    [fileMounts, ctdParameters, endpoints, envVars, addedTraits, emitChange],
+    [fileMounts, ctdParameters, envVars, addedTraits, emitChange],
   );
 
   // ── Traits ─────────────────────────────────────────────────────
@@ -1082,7 +941,6 @@ export const WorkloadDetailsField = ({
           setAddedTraits(updatedTraits);
           emitChange(
             ctdParameters,
-            endpoints,
             envVars,
             fileMounts,
             updatedTraits,
@@ -1100,7 +958,6 @@ export const WorkloadDetailsField = ({
       addedTraits,
       availableTraits,
       ctdParameters,
-      endpoints,
       envVars,
       fileMounts,
       client,
@@ -1112,9 +969,9 @@ export const WorkloadDetailsField = ({
     (id: string) => {
       const updatedTraits = addedTraits.filter(trait => trait.id !== id);
       setAddedTraits(updatedTraits);
-      emitChange(ctdParameters, endpoints, envVars, fileMounts, updatedTraits);
+      emitChange(ctdParameters, envVars, fileMounts, updatedTraits);
     },
-    [addedTraits, ctdParameters, endpoints, envVars, fileMounts, emitChange],
+    [addedTraits, ctdParameters, envVars, fileMounts, emitChange],
   );
 
   // Instance name is internal to the trait — no need to notify parent.
@@ -1136,9 +993,9 @@ export const WorkloadDetailsField = ({
         trait.id === id ? { ...trait, config } : trait,
       );
       setAddedTraits(updatedTraits);
-      emitChange(ctdParameters, endpoints, envVars, fileMounts, updatedTraits);
+      emitChange(ctdParameters, envVars, fileMounts, updatedTraits);
     },
-    [addedTraits, ctdParameters, endpoints, envVars, fileMounts, emitChange],
+    [addedTraits, ctdParameters, envVars, fileMounts, emitChange],
   );
 
   const addedTraitNames = useMemo(
@@ -1261,34 +1118,19 @@ export const WorkloadDetailsField = ({
         </>
       )}
 
-      {/* ── Endpoints (deployment types only, only for deploy-from-image) ── */}
+      {/* ── Endpoints are defined after creation (deployment types, deploy-from-image) ── */}
       {isDeploymentType && isFromImage && (
         <>
           <Divider className={classes.divider} />
           <Typography variant="subtitle1" className={classes.sectionTitle}>
             Endpoints
           </Typography>
-          <Typography variant="body2" color="textSecondary" gutterBottom>
-            {allowedEndpoints.length > 0
-              ? 'Define network endpoints for your component and how each is exposed. Internal and external endpoints get an Endpoint of the chosen type.'
-              : 'Define network endpoints for your component.'}
+          <Typography variant="body2" color="textSecondary">
+            Endpoints are added after the component is created: on its{' '}
+            <strong>Deploy</strong> page, click <strong>Configure</strong> and
+            open the <strong>Endpoints</strong> tab. Until then the component
+            has none.
           </Typography>
-          <EndpointList
-            endpoints={endpoints}
-            disabled={false}
-            editBuffer={endpointEditBuffer}
-            onRemoveEndpoint={handleRemoveEndpoint}
-            onAddEndpoint={handleAddEndpoint}
-            renderDetails={(name, endpoint) => (
-              <EndpointExposure
-                endpoint={endpoint}
-                allowedEndpoints={allowedEndpoints}
-                choice={endpointExposures[name]}
-                schemas={endpointTypeSchemas}
-                onChange={choice => handleExposureChange(name, choice)}
-              />
-            )}
-          />
         </>
       )}
 

@@ -24,8 +24,8 @@ import {
   type EndpointExposures,
   type ExposableEndpoint,
 } from '@openchoreo/backstage-plugin-common';
-import { openChoreoClientApiRef } from '../../api/OpenChoreoClientApi';
-import { generateUiSchemaWithTitles } from '../utils/rjsfUtils';
+import { openChoreoClientApiRef } from '../../../../api/OpenChoreoClientApi';
+import { generateUiSchemaWithTitles } from '../../../../scaffolder/utils/rjsfUtils';
 
 const useStyles = makeStyles(theme => ({
   row: {
@@ -36,9 +36,6 @@ const useStyles = makeStyles(theme => ({
   },
   select: {
     minWidth: 260,
-  },
-  placeholder: {
-    color: theme.palette.text.secondary,
   },
   note: {
     fontSize: '0.8125rem',
@@ -65,52 +62,19 @@ function hasProperties(schema: JSONSchema7): boolean {
 }
 
 /**
- * The exposure choice the form submits for every workload endpoint that can
- * be exposed through an Endpoint: the resolved EndpointType (or none) and
- * its parameters. Choices for endpoints that no longer exist are dropped.
+ * The EndpointTypes the Endpoints form currently uses: the resolved type of
+ * every row with a visibility beyond project that some type can expose.
  */
-export function formExposures(
-  endpoints: Record<string, ExposableEndpoint>,
-  allowedEndpoints: AllowedEndpointTypeEntry[],
-  exposures: EndpointExposures,
-): EndpointExposures {
-  const out: EndpointExposures = {};
-  for (const [name, endpoint] of Object.entries(endpoints)) {
-    if (
-      exposableVisibilities(endpoint).length === 0 ||
-      endpointTypeCandidates(endpointProtocol(endpoint), allowedEndpoints)
-        .length === 0
-    ) {
-      continue;
-    }
-    const type = resolveEndpointType(
-      endpoint,
-      allowedEndpoints,
-      exposures[name],
-    );
-    out[name] = {
-      type,
-      ...(type !== NO_ENDPOINT &&
-        exposures[name]?.type === type &&
-        exposures[name]?.parameters && {
-          parameters: exposures[name].parameters,
-        }),
-    };
-  }
-  return out;
-}
-
-/** The EndpointTypes the form currently uses across all endpoints. */
 export function chosenEndpointTypeKeys(
   endpoints: Record<string, ExposableEndpoint>,
   allowedEndpoints: AllowedEndpointTypeEntry[],
-  exposures: EndpointExposures,
+  choices: EndpointExposures,
 ): string[] {
   const keys = new Set<string>();
-  for (const choice of Object.values(
-    formExposures(endpoints, allowedEndpoints, exposures),
-  )) {
-    if (choice.type !== NO_ENDPOINT) keys.add(choice.type);
+  for (const [name, endpoint] of Object.entries(endpoints)) {
+    if (exposableVisibilities(endpoint).length === 0) continue;
+    const type = resolveEndpointType(endpoint, allowedEndpoints, choices[name]);
+    if (type !== NO_ENDPOINT) keys.add(type);
   }
   return [...keys].sort();
 }
@@ -165,17 +129,16 @@ interface EndpointExposureProps {
    * change: the choice is shown but fixed.
    */
   typeLocked?: boolean;
-  /** Shown instead of the default note when the choice changes nothing. */
+  /** Shown under the field, e.g. what saving does to this row. */
   notice?: ReactNode;
   disabled?: boolean;
 }
 
 /**
- * How one workload endpoint is exposed, shown inside its row once it has a
- * visibility beyond project: an "Exposed via" choice of the EndpointTypes
- * allowed for its protocol, or none, and the chosen type's parameters. With
- * none (or no type allowed for the protocol) the visibility stays on the
- * workload, in the deprecated field the ComponentType's templates read.
+ * How one workload endpoint is exposed in the Endpoints form, shown inside
+ * its row once it has a visibility beyond project: the Endpoint type, from
+ * those allowed for its protocol (the default one preselected), and that
+ * type's parameters. The Endpoint carries the row's visibility.
  */
 export const EndpointExposure = ({
   endpoint,
@@ -190,26 +153,26 @@ export const EndpointExposure = ({
 }: EndpointExposureProps) => {
   const classes = useStyles();
   const visibilities = exposableVisibilities(endpoint);
-  const candidates = endpointTypeCandidates(
-    endpointProtocol(endpoint),
-    allowedEndpoints,
-  );
+  const protocol = endpointProtocol(endpoint);
+  const candidates = endpointTypeCandidates(protocol, allowedEndpoints);
+  const noticeBox = notice ? (
+    <Box className={classes.note}>{notice}</Box>
+  ) : null;
   if (visibilities.length === 0) {
-    return notice ? <Box className={classes.note}>{notice}</Box> : null;
+    return noticeBox;
   }
-
-  const deprecatedNote = (
-    <Typography className={classes.note}>
-      {visibilities.join(', ')} visibility is stored on the workload
-      (deprecated) and served by the component type's own routes, if it defines
-      any.
-    </Typography>
-  );
   if (candidates.length === 0) {
-    return notice ? (
-      <Box className={classes.note}>{notice}</Box>
-    ) : (
-      deprecatedNote
+    // Only reachable from data saved elsewhere: the editor does not offer
+    // visibility beyond project for a protocol no type can expose.
+    return (
+      <Box>
+        <Typography className={classes.note}>
+          No endpoint type is allowed for {protocol || 'this protocol'}, so{' '}
+          {visibilities.join(', ')} visibility stays on the workload
+          (deprecated).
+        </Typography>
+        {noticeBox}
+      </Box>
     );
   }
 
@@ -221,40 +184,35 @@ export const EndpointExposure = ({
   const parameters =
     choice?.type === type ? choice?.parameters ?? {} : ({} as const);
 
-  let body: ReactNode = notice ?? deprecatedNote;
-  if (type !== NO_ENDPOINT) {
-    const schema = schemas[type];
-    const { name: typeName } = parseEndpointTypeKey(type);
-    if (schema === undefined || schema === 'loading') {
-      body = <CircularProgress size={20} />;
-    } else if (schema === 'error') {
-      body = (
-        <Alert severity="warning">
-          Could not load the parameters of {typeName}; its defaults will be
-          used.
-        </Alert>
-      );
-    } else if (hasProperties(schema)) {
-      body = (
-        <>
-          <Typography className={classes.parametersHeading}>
-            Parameters
-          </Typography>
-          <RjsfForm
-            schema={schema}
-            uiSchema={generateUiSchemaWithTitles(schema)}
-            formData={parameters}
-            onChange={(e: any) =>
-              onChange({ type, parameters: e.formData ?? {} })
-            }
-            disabled={disabled}
-            tagName="div"
-          />
-        </>
-      );
-    } else {
-      body = notice ?? null;
-    }
+  let body: ReactNode = null;
+  const schema = schemas[type];
+  if (schema === undefined || schema === 'loading') {
+    body = <CircularProgress size={20} />;
+  } else if (schema === 'error') {
+    body = (
+      <Alert severity="warning">
+        Could not load the parameters of {parseEndpointTypeKey(type).name}; its
+        defaults will be used.
+      </Alert>
+    );
+  } else if (hasProperties(schema)) {
+    body = (
+      <>
+        <Typography className={classes.parametersHeading}>
+          Parameters
+        </Typography>
+        <RjsfForm
+          schema={schema}
+          uiSchema={generateUiSchemaWithTitles(schema)}
+          formData={parameters}
+          onChange={(e: any) =>
+            onChange({ type, parameters: e.formData ?? {} })
+          }
+          disabled={disabled}
+          tagName="div"
+        />
+      </>
+    );
   }
 
   return (
@@ -262,26 +220,14 @@ export const EndpointExposure = ({
       <Box className={classes.row}>
         <TextField
           select
+          required
           variant="outlined"
           size="small"
           className={classes.select}
-          label="Exposed via"
-          // An existing component's endpoint not yet moved to an Endpoint
-          // has no type: the field stays empty until one is chosen.
-          value={type === NO_ENDPOINT ? '' : type}
+          label="Endpoint type"
+          value={type}
           disabled={disabled || typeLocked}
-          InputLabelProps={{ shrink: true }}
-          SelectProps={{
-            displayEmpty: true,
-            renderValue: value =>
-              value ? (
-                labelOf(value as string)
-              ) : (
-                <span className={classes.placeholder}>
-                  Choose an endpoint type
-                </span>
-              ),
-          }}
+          SelectProps={{ renderValue: value => labelOf(value as string) }}
           helperText={
             typeLocked
               ? "An Endpoint's type is fixed once created. Clear the visibility beyond project to delete it."
@@ -300,6 +246,7 @@ export const EndpointExposure = ({
         </TextField>
         {status}
       </Box>
+      {noticeBox && <Box className={classes.parameters}>{noticeBox}</Box>}
       {body && <Box className={classes.parameters}>{body}</Box>}
     </Box>
   );

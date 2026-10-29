@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Entity } from '@backstage/catalog-model';
 import { useApi } from '@backstage/core-plugin-api';
 import {
-  NO_ENDPOINT,
   endpointTypeKey,
   parseEndpointTypeKey,
   type AllowedEndpointTypeEntry,
@@ -15,8 +14,10 @@ import { openChoreoClientApiRef } from '../../../../api/OpenChoreoClientApi';
 import { getErrorMessage } from '../../../../utils/errorUtils';
 import {
   currentEndpointName,
+  initialEndpointMode,
   planEndpointChanges,
   primaryOriginals,
+  type EndpointFormMode,
 } from '../componentEndpointDrafts';
 
 export interface ComponentEndpointsState {
@@ -25,19 +26,36 @@ export interface ComponentEndpointsState {
   allowedEndpoints: AllowedEndpointTypeEntry[];
   /** The component's Endpoints as on the server. */
   originals: ComponentEndpointSummary[];
-  /** The "Exposed via" choice per workload endpoint, by current name. */
+  /** The Endpoint type chosen per workload endpoint, by current name. */
   choices: EndpointExposures;
   renames: Record<string, string>;
-  /** Whether the page offers Endpoints at all. */
-  enabled: boolean;
+  /** The form the Endpoints tab shows, applied on save. */
+  mode: EndpointFormMode;
+  /** The form the page opened with (or last saved). */
+  initialMode: EndpointFormMode;
+  /**
+   * Switches forms. Nothing is applied until save, and switching back
+   * restores the loaded state, since the rows are the same in both forms.
+   */
+  setMode: (mode: EndpointFormMode) => void;
+  /**
+   * Whether the ComponentType allows any Endpoint type. Without one the
+   * Endpoints form keeps every endpoint project-scoped, and legacy
+   * endpoints cannot be migrated.
+   */
+  canUseEndpoints: boolean;
   setChoice: (workloadEndpoint: string, choice: EndpointExposureChoice) => void;
+  /** Puts back a row's earlier choice, or none, when its edit is cancelled. */
+  restoreChoice: (
+    workloadEndpoint: string,
+    choice: EndpointExposureChoice | undefined,
+  ) => void;
   /** Keeps a renamed workload endpoint's Endpoint and choice. */
   renameWorkloadEndpoint: (from: string, to: string) => void;
   /**
    * The workload endpoints as the page edits them: each one exposed through
    * an Endpoint shows that Endpoint's visibility, which the workload itself
-   * no longer carries. Workload endpoints without an Endpoint keep "none"
-   * as their choice, so loading the page never migrates them.
+   * no longer carries. Also picks the form the page opens with.
    */
   prepare: <T extends ExposableEndpoint>(
     endpoints: Record<string, T>,
@@ -68,6 +86,8 @@ export function useComponentEndpoints(
   const [originals, setOriginals] = useState<ComponentEndpointSummary[]>([]);
   const [choices, setChoices] = useState<EndpointExposures>({});
   const [renames, setRenames] = useState<Record<string, string>>({});
+  const [mode, setMode] = useState<EndpointFormMode>('legacy');
+  const [initialMode, setInitialMode] = useState<EndpointFormMode>('legacy');
 
   useEffect(() => {
     if (options.skip) {
@@ -113,6 +133,16 @@ export function useComponentEndpoints(
     [],
   );
 
+  const restoreChoice = useCallback(
+    (workloadEndpoint: string, choice: EndpointExposureChoice | undefined) => {
+      setChoices(prev => {
+        const { [workloadEndpoint]: _current, ...rest } = prev;
+        return choice ? { ...rest, [workloadEndpoint]: choice } : rest;
+      });
+    },
+    [],
+  );
+
   const renameWorkloadEndpoint = useCallback(
     (from: string, to: string) => {
       if (from === to) return;
@@ -137,12 +167,13 @@ export function useComponentEndpoints(
   const prepare = useCallback(
     <T extends ExposableEndpoint>(endpoints: Record<string, T>) => {
       const primary = primaryOriginals(originals, {});
+      const opening = initialEndpointMode(endpoints, originals);
+      setMode(opening);
+      setInitialMode(opening);
       const result: Record<string, T> = {};
-      const unexposed: string[] = [];
       for (const [name, endpoint] of Object.entries(endpoints)) {
         const original = primary.get(name);
         if (!original) {
-          unexposed.push(name);
           result[name] = endpoint;
           continue;
         }
@@ -151,13 +182,6 @@ export function useComponentEndpoints(
         ];
         result[name] = { ...endpoint, visibility };
       }
-      setChoices(prev => {
-        const next = { ...prev };
-        for (const name of unexposed) {
-          if (!(name in next)) next[name] = { type: NO_ENDPOINT };
-        }
-        return next;
-      });
       return result;
     },
     [originals],
@@ -169,6 +193,7 @@ export function useComponentEndpoints(
       autoDeploy: boolean,
     ) => {
       const changes = planEndpointChanges({
+        mode,
         endpoints,
         allowedEndpoints,
         choices,
@@ -233,8 +258,9 @@ export function useComponentEndpoints(
         }
       }
       setRenames({});
+      setInitialMode(mode);
     },
-    [client, entity, allowedEndpoints, choices, originals, renames],
+    [client, entity, mode, allowedEndpoints, choices, originals, renames],
   );
 
   return useMemo(
@@ -245,8 +271,12 @@ export function useComponentEndpoints(
       originals,
       choices,
       renames,
-      enabled: allowedEndpoints.length > 0 || originals.length > 0,
+      mode,
+      initialMode,
+      setMode,
+      canUseEndpoints: allowedEndpoints.length > 0,
       setChoice,
+      restoreChoice,
       renameWorkloadEndpoint,
       prepare,
       apply,
@@ -258,7 +288,10 @@ export function useComponentEndpoints(
       originals,
       choices,
       renames,
+      mode,
+      initialMode,
       setChoice,
+      restoreChoice,
       renameWorkloadEndpoint,
       prepare,
       apply,

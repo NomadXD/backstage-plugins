@@ -52,13 +52,15 @@ import { pickOverridableProperties } from '../../ReleaseLines/releaseLineUtils';
 import { useComponentEndpoints } from './hooks/useComponentEndpoints';
 import {
   endpointChangeList,
+  endpointFormSwitchSummary,
   exposedEndpointNames,
   planEndpointChanges,
 } from './componentEndpointDrafts';
 
 /**
  * The workload with the given rows' visibilities beyond project dropped
- * (their Endpoints carry them) and protocol set on every row.
+ * (their Endpoints carry them) and protocol set on every row. In the legacy
+ * form no row is exposed through an Endpoint, so all visibility is kept.
  */
 function workloadForSave(
   resource: WorkloadResource | null,
@@ -271,9 +273,12 @@ export const WorkloadConfigPage = ({
     choices: endpointChoices,
     originals: endpointOriginals,
     renames: endpointRenames,
+    mode: endpointMode,
+    initialMode: initialEndpointMode,
   } = componentEndpoints;
   const endpointPlanInput = useMemo(
     () => ({
+      mode: endpointMode,
       endpoints: workloadEndpoints ?? {},
       allowedEndpoints,
       choices: endpointChoices,
@@ -281,6 +286,7 @@ export const WorkloadConfigPage = ({
       renames: endpointRenames,
     }),
     [
+      endpointMode,
       workloadEndpoints,
       allowedEndpoints,
       endpointChoices,
@@ -296,39 +302,42 @@ export const WorkloadConfigPage = ({
     () => endpointChangeList(endpointChanges),
     [endpointChanges],
   );
+  const endpointFormSwitch = useMemo(
+    () =>
+      endpointFormSwitchSummary(
+        initialEndpointMode,
+        endpointMode,
+        endpointChanges,
+      ),
+    [initialEndpointMode, endpointMode, endpointChanges],
+  );
   const hasEndpointChanges = endpointChanges.length > 0;
 
   // The workload as on the server; the form shows rows with their
   // Endpoint's visibility merged in, which the saved workload does not carry.
   const serverResourceRef = useRef<WorkloadResource | null>(null);
 
-  // Once the workload and the component's Endpoints have both loaded, show
-  // each row with the visibility its Endpoint carries.
+  // Once the workload and the component's Endpoints have both loaded, pick
+  // the form the Endpoints tab opens with and show each row with the
+  // visibility its Endpoint carries.
   const endpointsPreparedRef = useRef(false);
-  const {
-    loading: endpointsLoading,
-    enabled: endpointsEnabled,
-    prepare,
-  } = componentEndpoints;
+  const { loading: endpointsLoading, prepare } = componentEndpoints;
   useEffect(() => {
     if (endpointsPreparedRef.current || endpointsLoading || isLoading) return;
     if (!workloadResource) return;
     endpointsPreparedRef.current = true;
     const rows = workloadResource.spec?.endpoints;
-    if (!endpointsEnabled || !rows) return;
+    if (!rows) {
+      prepare({});
+      return;
+    }
     const prepared = {
       ...workloadResource,
       spec: { ...workloadResource.spec, endpoints: prepare(rows) },
     } as WorkloadResource;
     setWorkloadResource(prepared);
     setInitialResource(JSON.parse(JSON.stringify(prepared)));
-  }, [
-    endpointsLoading,
-    endpointsEnabled,
-    isLoading,
-    workloadResource,
-    prepare,
-  ]);
+  }, [endpointsLoading, isLoading, workloadResource, prepare]);
 
   // Fetch workload and component config
   useEffect(() => {
@@ -626,13 +635,14 @@ export const WorkloadConfigPage = ({
     }
     setIsProcessing(true);
     setSaveError(null);
-    // The workload as saved: rows exposed through an Endpoint keep only
-    // project visibility. It is compared with the server copy rather than
-    // the form, since moving a row to an Endpoint changes the workload
-    // without changing what the form shows.
+    // The workload as saved: in the Endpoints form, rows exposed through an
+    // Endpoint keep only project visibility; in the legacy form every row
+    // keeps its visibility. It is compared with the server copy rather than
+    // the form, since switching forms changes the workload without changing
+    // what the form shows.
     const toSave = workloadForSave(
       workloadResource,
-      endpointsEnabled ? exposedEndpointNames(endpointPlanInput) : [],
+      exposedEndpointNames(endpointPlanInput),
     );
     const workloadDirty =
       isNewWorkload ||
@@ -961,6 +971,7 @@ export const WorkloadConfigPage = ({
         traitsState={hasTraitChanges ? traitsState : undefined}
         parameterChanges={parameterChanges}
         endpointChanges={endpointChangeItems}
+        endpointFormSwitch={endpointFormSwitch}
         autoDeploy={autoDeployEnabled}
         lowestEnvironmentName={lowestEnvironment}
       />

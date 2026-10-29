@@ -30,13 +30,20 @@ export interface EndpointListProps {
    * Extra content shown inside an endpoint's row (for example how it is
    * exposed). For the row being edited it receives the edited name and
    * values, so it follows the form as the developer types, and as
-   * `savedName` the name the row is saved under.
+   * `savedName` the name the row is saved under. `isEditing` tells whether
+   * the row is open for editing, so details can be read-only otherwise.
    */
   renderDetails?: (
     endpointName: string,
     endpoint: WorkloadEndpoint,
     savedName: string,
+    isEditing: boolean,
   ) => ReactNode;
+  /**
+   * Why a row cannot take visibility beyond project, if it cannot. Receives
+   * the edited values, so it follows the protocol as it changes.
+   */
+  visibilityDisabledReason?: (endpoint: WorkloadEndpoint) => string | undefined;
 }
 
 /**
@@ -50,6 +57,7 @@ export const EndpointList: FC<EndpointListProps> = ({
   onRemoveEndpoint,
   onAddEndpoint,
   renderDetails,
+  visibilityDisabledReason,
 }) => {
   const classes = useStyles();
 
@@ -72,6 +80,10 @@ export const EndpointList: FC<EndpointListProps> = ({
     <Box>
       {endpointEntries.map(([endpointName, endpoint]) => {
         const isCurrentlyEditing = editBuffer.isRowEditing(endpointName);
+        const shown =
+          isCurrentlyEditing && editBuffer.editBuffer
+            ? editBuffer.editBuffer
+            : endpoint;
 
         return (
           <Box key={endpointName} className={classes.rowWrapper}>
@@ -81,11 +93,8 @@ export const EndpointList: FC<EndpointListProps> = ({
                   ? editBuffer.editBufferName
                   : endpointName
               }
-              endpoint={
-                isCurrentlyEditing && editBuffer.editBuffer
-                  ? editBuffer.editBuffer
-                  : endpoint
-              }
+              endpoint={shown}
+              visibilityDisabledReason={visibilityDisabledReason?.(shown)}
               disabled={disabled}
               isEditing={isCurrentlyEditing}
               onEdit={() => editBuffer.startEdit(endpointName)}
@@ -103,8 +112,9 @@ export const EndpointList: FC<EndpointListProps> = ({
                       editBuffer.editBufferName ?? endpointName,
                       editBuffer.editBuffer ?? endpoint,
                       endpointName,
+                      true,
                     )
-                  : renderDetails?.(endpointName, endpoint, endpointName)
+                  : renderDetails?.(endpointName, endpoint, endpointName, false)
               }
             />
           </Box>

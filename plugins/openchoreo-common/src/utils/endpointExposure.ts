@@ -2,14 +2,12 @@
  * Choosing how a component's workload endpoints are exposed through
  * Endpoints, from its ComponentType's `allowedEndpoints`.
  *
- * Shared by the component creation form and configure page, which offer the
- * choices, and the scaffolder action, which creates the Endpoints, so all of
- * them resolve a choice the same way.
- *
- * The rule: a workload endpoint is exposed through an Endpoint when an
- * EndpointType is chosen for it. Its visibilities beyond project are then
- * carried by the Endpoint and dropped from the workload. Otherwise they stay
- * on the workload, in the deprecated field ComponentType templates still read.
+ * Used by the configure page, the only place a component's Endpoints are
+ * defined. In its Endpoints form, a workload endpoint with a visibility
+ * beyond project is exposed through an Endpoint of an allowed EndpointType,
+ * which carries those visibilities; they are dropped from the workload. In
+ * its legacy form they stay on the workload, in the deprecated field
+ * ComponentType templates still read.
  */
 /** An `allowedEndpoints` entry of a (Cluster)ComponentType. */
 export interface AllowedEndpointTypeEntry {
@@ -28,12 +26,12 @@ export interface ExposableEndpoint {
   visibility?: string[];
 }
 
-/** Choice value meaning "expose through no Endpoint". */
+/** The EndpointType key of a protocol no allowed EndpointType serves. */
 export const NO_ENDPOINT = 'none';
 
 /**
- * What the developer chose for one workload endpoint: an EndpointType key, or
- * {@link NO_ENDPOINT}, and the parameters for that type.
+ * What the developer chose for one workload endpoint: an EndpointType key
+ * and the parameters for that type.
  */
 export interface EndpointExposureChoice {
   type: string;
@@ -42,15 +40,6 @@ export interface EndpointExposureChoice {
 
 /** Choices keyed by workload endpoint name. */
 export type EndpointExposures = Record<string, EndpointExposureChoice>;
-
-/** One Endpoint to create for a workload endpoint. */
-export interface PlannedExposure {
-  workloadEndpoint: string;
-  typeKind: EndpointTypeKind;
-  typeName: string;
-  visibility: string[];
-  parameters?: Record<string, unknown>;
-}
 
 /** A workload endpoint's protocol, falling back to the deprecated type. */
 export function endpointProtocol(endpoint: ExposableEndpoint): string {
@@ -118,8 +107,8 @@ export function defaultEndpointType(
 
 /**
  * The EndpointType a workload endpoint is exposed through: the developer's
- * choice when it is still a candidate for the protocol (or "none"),
- * otherwise the protocol's default.
+ * choice when it is still a candidate for the protocol, otherwise the
+ * protocol's default ({@link NO_ENDPOINT} when no type serves it).
  */
 export function resolveEndpointType(
   endpoint: ExposableEndpoint,
@@ -129,44 +118,14 @@ export function resolveEndpointType(
   const protocol = endpointProtocol(endpoint);
   const chosen = choice?.type;
   if (
-    chosen === NO_ENDPOINT ||
-    (chosen &&
-      endpointTypeCandidates(protocol, entries).some(
-        c => endpointTypeKey(c.ref) === chosen,
-      ))
+    chosen &&
+    endpointTypeCandidates(protocol, entries).some(
+      c => endpointTypeKey(c.ref) === chosen,
+    )
   ) {
     return chosen;
   }
   return defaultEndpointType(protocol, entries);
-}
-
-/**
- * Decides which Endpoints a component needs: one per workload endpoint that
- * has a visibility beyond project and an EndpointType, carrying those
- * visibilities and the chosen parameters.
- */
-export function planEndpointExposures(
-  endpoints: Record<string, ExposableEndpoint>,
-  entries: AllowedEndpointTypeEntry[],
-  exposures: EndpointExposures = {},
-): PlannedExposure[] {
-  const planned: PlannedExposure[] = [];
-  for (const [name, endpoint] of Object.entries(endpoints)) {
-    const visibility = exposableVisibilities(endpoint);
-    if (visibility.length === 0) continue;
-    const key = resolveEndpointType(endpoint, entries, exposures[name]);
-    if (key === NO_ENDPOINT) continue;
-    const { kind, name: typeName } = parseEndpointTypeKey(key);
-    const parameters = exposures[name]?.parameters;
-    planned.push({
-      workloadEndpoint: name,
-      typeKind: kind,
-      typeName,
-      visibility,
-      ...(parameters && Object.keys(parameters).length > 0 && { parameters }),
-    });
-  }
-  return planned;
 }
 
 /**

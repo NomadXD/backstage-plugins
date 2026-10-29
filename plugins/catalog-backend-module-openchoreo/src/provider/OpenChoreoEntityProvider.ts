@@ -995,7 +995,6 @@ export class OpenChoreoEntityProvider implements EntityProvider {
                     workloadType: ct.spec?.workloadType ?? 'deployment',
                     allowedWorkflows: ct.spec?.allowedWorkflows,
                     allowedTraits: ct.spec?.allowedTraits,
-                    allowedEndpoints: ct.spec?.allowedEndpoints,
                     createdAt: getCreatedAt(ct) || '',
                   },
                   spec: {
@@ -1596,7 +1595,6 @@ export class OpenChoreoEntityProvider implements EntityProvider {
                     kind: 'ClusterTrait' as const,
                     name: t.name,
                   })),
-                  allowedEndpoints: cct.spec?.allowedEndpoints,
                   createdAt: getCreatedAt(cct) || '',
                 },
                 spec: {

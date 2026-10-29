@@ -1,9 +1,6 @@
 import { Entity } from '@backstage/catalog-model';
 import { JSONSchema7 } from 'json-schema';
-import {
-  CHOREO_ANNOTATIONS,
-  type AllowedEndpointTypeEntry,
-} from '@openchoreo/backstage-plugin-common';
+import { CHOREO_ANNOTATIONS } from '@openchoreo/backstage-plugin-common';
 
 /**
  * Namespace used for cluster-scoped resources such as ClusterWorkflows
@@ -23,7 +20,6 @@ export interface ComponentType {
     workloadType: string;
     allowedWorkflows?: Array<string | { kind?: string; name: string }>;
     allowedTraits?: Array<{ kind?: string; name: string }>;
-    allowedEndpoints?: AllowedEndpointTypeEntry[];
     tags?: string[];
     createdAt?: string;
   };
@@ -139,7 +135,7 @@ export class CtdToTemplateConverter {
    * Structure: 3 sections
    *   1. Component Metadata (project, name, description)
    *   2. Build & Deploy (deployment source + CI/CD)
-   *   3. Workload Details (CTD params + endpoints + env vars + file mounts + traits)
+   *   3. Workload Details (CTD params + env vars + file mounts + traits)
    */
   private generateParameters(
     componentType: ComponentType,
@@ -193,7 +189,7 @@ export class CtdToTemplateConverter {
       this.generateCISetupSection(componentType, namespaceName, ctdKind),
     );
 
-    // Workload Details (CTD params, endpoints, env vars, file mounts, traits)
+    // Workload Details (CTD params, env vars, file mounts, traits)
     parameters.push(
       this.generateWorkloadDetailsSection(componentType, namespaceName),
     );
@@ -203,8 +199,9 @@ export class CtdToTemplateConverter {
 
   /**
    * Generate Workload Details section
-   * Consolidates CTD parameters, endpoints, env vars, file mounts, and traits
-   * into a single composite field extension
+   * Consolidates CTD parameters, env vars, file mounts, and traits into a
+   * single composite field extension. Endpoints are not asked for here: they
+   * are defined on the component's configure page.
    */
   private generateWorkloadDetailsSection(
     componentType: ComponentType,
@@ -228,7 +225,6 @@ export class CtdToTemplateConverter {
               componentType.metadata.displayName ||
               this.formatTitle(componentType.metadata.name),
             allowedTraits: componentType.metadata.allowedTraits,
-            allowedEndpoints: componentType.metadata.allowedEndpoints,
           },
         },
       },

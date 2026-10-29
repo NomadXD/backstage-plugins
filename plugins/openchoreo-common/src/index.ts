@@ -206,14 +206,12 @@ export {
   endpointTypeCandidates,
   defaultEndpointType,
   resolveEndpointType,
-  planEndpointExposures,
   workloadEndpointsForSave,
   type AllowedEndpointTypeEntry,
   type EndpointTypeKind,
   type ExposableEndpoint,
   type EndpointExposureChoice,
   type EndpointExposures,
-  type PlannedExposure,
 } from './utils/endpointExposure';
 export {
   endpointManagingComponent,

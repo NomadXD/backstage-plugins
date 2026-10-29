@@ -3,7 +3,6 @@ import {
   defaultEndpointType,
   endpointProtocol,
   endpointTypeCandidates,
-  planEndpointExposures,
   resolveEndpointType,
   workloadEndpointsForSave,
   type AllowedEndpointTypeEntry,
@@ -56,14 +55,17 @@ describe('defaultEndpointType', () => {
 describe('resolveEndpointType', () => {
   const http = { protocol: 'HTTP', visibility: ['external'] };
 
-  it('keeps a valid choice, including none', () => {
+  it('keeps a valid choice', () => {
     expect(
       resolveEndpointType(http, entries, {
         type: 'ClusterEndpointType/managed-http',
       }),
     ).toBe('ClusterEndpointType/managed-http');
+  });
+
+  it('ignores a "none" choice and uses the default', () => {
     expect(resolveEndpointType(http, entries, { type: NO_ENDPOINT })).toBe(
-      NO_ENDPOINT,
+      'ClusterEndpointType/http-route',
     );
   });
 
@@ -73,45 +75,6 @@ describe('resolveEndpointType', () => {
         type: 'ClusterEndpointType/grpc-route',
       }),
     ).toBe('ClusterEndpointType/http-route');
-  });
-});
-
-describe('planEndpointExposures', () => {
-  it('plans one Endpoint per exposed workload endpoint', () => {
-    expect(
-      planEndpointExposures(
-        {
-          api: {
-            protocol: 'HTTP',
-            visibility: ['project', 'external', 'internal'],
-          },
-          admin: { protocol: 'HTTP', visibility: ['project'] },
-          rpc: { protocol: 'gRPC', visibility: ['external'] },
-          raw: { protocol: 'TCP', visibility: ['external'] },
-        },
-        entries,
-        {
-          api: {
-            type: 'ClusterEndpointType/managed-http',
-            parameters: { a: 1 },
-          },
-        },
-      ),
-    ).toEqual([
-      {
-        workloadEndpoint: 'api',
-        typeKind: 'ClusterEndpointType',
-        typeName: 'managed-http',
-        visibility: ['external', 'internal'],
-        parameters: { a: 1 },
-      },
-      {
-        workloadEndpoint: 'rpc',
-        typeKind: 'ClusterEndpointType',
-        typeName: 'grpc-route',
-        visibility: ['external'],
-      },
-    ]);
   });
 });
 
