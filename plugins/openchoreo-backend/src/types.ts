@@ -81,6 +81,14 @@ export interface EnvironmentService {
   }): Promise<unknown>;
 }
 
+/** An Endpoint's resolved URLs in one environment, per visibility. */
+export interface EndpointInvokeURLs {
+  project?: EndpointURLDetails;
+  namespace?: EndpointURLDetails;
+  internal?: EndpointURLDetails;
+  external?: EndpointURLDetails;
+}
+
 /** Security an Endpoint's type declares for one of its URLs. */
 export interface EndpointURLSecurity {
   scheme: 'none' | 'apiKey' | 'oauth2' | 'basicAuth';
@@ -204,6 +212,8 @@ export interface EndpointEnvironment {
   lastDeployed?: string;
   /** How each backend resolved in this environment. */
   backends?: ResolvedEndpointBackend[];
+  /** The URLs the Endpoint is invoked at here, per visibility. */
+  urls?: EndpointInvokeURLs;
   promotionTargets?: {
     name: string;
     resourceName?: string;

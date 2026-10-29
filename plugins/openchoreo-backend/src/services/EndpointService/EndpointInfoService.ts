@@ -357,6 +357,102 @@ export class EndpointInfoService {
     return { success: true };
   }
 
+  /**
+   * Adds a backend to an Endpoint, routing part of its traffic to another
+   * component's workload endpoint. The Endpoint then belongs to its project:
+   * the source-component and source-endpoint labels are dropped, so the
+   * Endpoint controller re-parents it to the Project, the catalog lists it in
+   * the project's contents, and the component's configure page and deploys
+   * no longer manage it.
+   */
+  async addEndpointBackend(
+    request: {
+      namespaceName: string;
+      endpointName: string;
+      component: string;
+      workloadEndpoint: string;
+      weight?: number;
+    },
+    token?: string,
+  ): Promise<{ name: string; backendName: string }> {
+    const client = this.client(token);
+    const { data, error, response } = await client.GET(
+      '/api/v1/namespaces/{namespaceName}/endpoints/{endpointName}',
+      {
+        params: {
+          path: {
+            namespaceName: request.namespaceName,
+            endpointName: request.endpointName,
+          },
+        },
+      },
+    );
+    assertApiResponse({ data, error, response }, 'fetch endpoint');
+    const endpoint = data!;
+    if (!endpoint.spec) {
+      throw new InputError(`Endpoint ${request.endpointName} has no spec`);
+    }
+    const refs = endpoint.spec.backendRefs ?? [];
+    if (
+      refs.some(
+        ref =>
+          ref.component?.name === request.component &&
+          ref.component?.endpoint === request.workloadEndpoint,
+      )
+    ) {
+      throw new InputError(
+        `Endpoint ${request.endpointName} already routes to ${request.component}/${request.workloadEndpoint}`,
+      );
+    }
+
+    const base = toDnsLabel(
+      `${request.component}-${request.workloadEndpoint}`,
+    ).slice(0, 60);
+    const taken = new Set(refs.map(ref => ref.name));
+    let backendName = base;
+    for (let i = 2; taken.has(backendName); i++) {
+      backendName = `${base}-${i}`;
+    }
+
+    const {
+      [CHOREO_LABELS.ENDPOINT_SOURCE_COMPONENT]: _component,
+      [CHOREO_LABELS.ENDPOINT_SOURCE_ENDPOINT]: _endpoint,
+      ...labels
+    } = endpoint.metadata.labels ?? {};
+    const body = {
+      metadata: { ...endpoint.metadata, labels },
+      spec: {
+        ...endpoint.spec,
+        backendRefs: [
+          ...refs,
+          {
+            name: backendName,
+            kind: 'Component',
+            component: {
+              name: request.component,
+              endpoint: request.workloadEndpoint,
+            },
+            ...(request.weight !== undefined && { weight: request.weight }),
+          },
+        ],
+      },
+    };
+    const updated = await client.PUT(
+      '/api/v1/namespaces/{namespaceName}/endpoints/{endpointName}',
+      {
+        params: {
+          path: {
+            namespaceName: request.namespaceName,
+            endpointName: request.endpointName,
+          },
+        },
+        body: body as any,
+      },
+    );
+    assertApiResponse(updated, 'add endpoint backend');
+    return { name: request.endpointName, backendName };
+  }
+
   private async getManagedEndpoint(
     client: ReturnType<EndpointInfoService['client']>,
     request: ComponentRef & { endpointName: string },

@@ -117,6 +117,7 @@ const API_ENDPOINTS = {
   ENDPOINT_TYPE_SCHEMA: '/endpoint-type-schema',
   CLUSTER_ENDPOINT_TYPE_SCHEMA: '/cluster-endpoint-type-schema',
   COMPONENT_ENDPOINTS: '/component-endpoints',
+  ENDPOINT_BACKENDS: '/endpoint-backends',
   COMPONENT_TRAITS: '/component-traits',
   RELEASE_LINE: '/release-line',
   COMPONENT_CONFIG: '/component-config',
@@ -794,6 +795,22 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
     await this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
       method: 'DELETE',
       body: { ...componentRefBody(entity), endpointName },
+    });
+  }
+
+  async addEndpointBackend(
+    entity: Entity,
+    backend: { component: string; workloadEndpoint: string; weight?: number },
+  ): Promise<{ name: string; backendName: string }> {
+    const annotations = entity.metadata.annotations ?? {};
+    return this.apiFetch(API_ENDPOINTS.ENDPOINT_BACKENDS, {
+      method: 'POST',
+      body: {
+        namespaceName: annotations[CHOREO_ANNOTATIONS.NAMESPACE],
+        endpointName:
+          annotations[CHOREO_ANNOTATIONS.ENDPOINT] ?? entity.metadata.name,
+        ...backend,
+      },
     });
   }
 

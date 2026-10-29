@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { EntityProvider } from '@backstage/plugin-catalog-react';
 import type { Entity } from '@backstage/catalog-model';
 import { EndpointRoutingCard, trafficShares } from './EndpointRoutingCard';
@@ -9,6 +9,15 @@ jest.mock('@backstage/plugin-catalog-react', () => ({
   EntityRefLink: ({ entityRef }: any) => (
     <span>{`${entityRef.kind}:${entityRef.namespace}/${entityRef.name}`}</span>
   ),
+}));
+
+jest.mock('./AddEndpointBackendDialog', () => ({
+  AddEndpointBackendDialog: ({ open, managedByComponent }: any) =>
+    open ? (
+      <div role="dialog">
+        add backend · managed by {managedByComponent ?? '-'}
+      </div>
+    ) : null,
 }));
 
 jest.mock('@openchoreo/backstage-design-system', () => ({
@@ -137,5 +146,17 @@ describe('EndpointApiCard', () => {
         'This endpoint declares no schema, so it has no API definition.',
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe('EndpointRoutingCard add backend', () => {
+  it('opens the add-backend dialog with the managing component', () => {
+    renderWith(
+      makeEntity({ managedByComponent: 'orders' }),
+      <EndpointRoutingCard />,
+    );
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add backend' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('managed by orders');
   });
 });

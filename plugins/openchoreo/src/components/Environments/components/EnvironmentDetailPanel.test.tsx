@@ -83,6 +83,13 @@ jest.mock('./ReleaseManifestDialog', () => ({
   },
 }));
 
+// InvokeUrlsDialog navigates to Endpoint pages, which needs a router these
+// tests don't supply. The dialog has its own focused test file.
+jest.mock('./InvokeUrlsDialog', () => ({
+  InvokeUrlsDialog: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" data-testid="invoke-urls-dialog" /> : null,
+}));
+
 jest.mock('./ReleaseBrowserDialog', () => ({
   ReleaseBrowserDialog: ({ open }: { open: boolean }) =>
     open ? <div role="dialog" data-testid="browser-dialog" /> : null,

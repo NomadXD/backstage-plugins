@@ -327,4 +327,56 @@ describe('EndpointInfoService component Endpoints', () => {
       expect(mockDELETE).not.toHaveBeenCalled();
     });
   });
+
+  describe('addEndpointBackend', () => {
+    const request = {
+      namespaceName: 'acme',
+      endpointName: 'orders-api',
+      component: 'payments',
+      workloadEndpoint: 'http',
+      weight: 2,
+    };
+
+    it('appends the backend and moves the Endpoint to its project', async () => {
+      mockGET.mockResolvedValue(createOkResponse(endpoint('orders-api')));
+      mockPUT.mockResolvedValue(createOkResponse({}));
+
+      const result = await service.addEndpointBackend(request);
+
+      expect(result).toEqual({
+        name: 'orders-api',
+        backendName: 'payments-http',
+      });
+      const body = mockPUT.mock.calls[0][1].body;
+      expect(body.metadata.labels).toEqual({});
+      expect(body.metadata.resourceVersion).toBe('7');
+      expect(body.spec.backendRefs).toEqual([
+        {
+          name: 'orders',
+          kind: 'Component',
+          weight: 1,
+          component: { name: 'orders', endpoint: 'api' },
+        },
+        {
+          name: 'payments-http',
+          kind: 'Component',
+          weight: 2,
+          component: { name: 'payments', endpoint: 'http' },
+        },
+      ]);
+    });
+
+    it('refuses a backend the Endpoint already routes to', async () => {
+      mockGET.mockResolvedValue(createOkResponse(endpoint('orders-api')));
+
+      await expect(
+        service.addEndpointBackend({
+          ...request,
+          component: 'orders',
+          workloadEndpoint: 'api',
+        }),
+      ).rejects.toThrow(/already routes to orders\/api/);
+      expect(mockPUT).not.toHaveBeenCalled();
+    });
+  });
 });

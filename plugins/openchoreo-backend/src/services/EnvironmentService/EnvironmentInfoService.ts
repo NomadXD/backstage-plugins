@@ -32,7 +32,7 @@ import {
   type ProjectDeploymentStatus,
 } from '../transformers/project-release-binding';
 import { scopedName } from '../releaseLineNames';
-import { applyComponentEndpointUrls } from './componentEndpointUrls';
+import { applyComponentEndpointUrls, toDetails } from './componentEndpointUrls';
 import { listComponentEndpoints } from '../EndpointService/componentEndpoints';
 
 type ModelsEnvironment = EnvironmentResponse;
@@ -2577,6 +2577,17 @@ export class EnvironmentInfoService implements EnvironmentService {
         result.statusMessage = derived.message;
       }
       result.backends = transformResolvedEndpointBackends(binding);
+      const urls = binding.status?.urls;
+      if (urls) {
+        result.urls = Object.fromEntries(
+          (['external', 'internal', 'namespace', 'project'] as const).flatMap(
+            visibility => {
+              const url = urls[visibility];
+              return url ? [[visibility, toDetails(url)]] : [];
+            },
+          ),
+        );
+      }
     }
 
     if (promotionTargets && promotionTargets.length > 0) {
