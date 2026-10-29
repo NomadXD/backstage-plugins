@@ -12,6 +12,7 @@ function renderEditor(
     deleteDisabled: boolean;
     applyDisabled: boolean;
     details: ReactNode;
+    visibilityDisabledReason: string;
   }> = {},
 ) {
   const handlers = {
@@ -37,6 +38,7 @@ function renderEditor(
       deleteDisabled={overrides.deleteDisabled}
       applyDisabled={overrides.applyDisabled}
       details={overrides.details}
+      visibilityDisabledReason={overrides.visibilityDisabledReason}
       {...handlers}
     />,
   );
@@ -129,6 +131,23 @@ describe('EndpointEditor', () => {
       expect(
         screen.getByRole('button', { name: /save changes/i }),
       ).toBeInTheDocument();
+    });
+  });
+
+  describe('visibilityDisabledReason', () => {
+    it('blocks adding visibility beyond project but allows clearing it', () => {
+      renderEditor({
+        isEditing: true,
+        endpoint: { type: 'TCP', port: 9000, visibility: ['external'] },
+        visibilityDisabledReason: 'No endpoint type is allowed for TCP.',
+      });
+
+      expect(
+        screen.getByText('No endpoint type is allowed for TCP.'),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Namespace' })).toBeDisabled();
+      expect(screen.getByRole('checkbox', { name: 'Internal' })).toBeDisabled();
+      expect(screen.getByRole('checkbox', { name: 'External' })).toBeEnabled();
     });
   });
 });

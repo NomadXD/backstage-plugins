@@ -1,7 +1,9 @@
 import type { ComponentEndpointSummary } from '@openchoreo/backstage-plugin-common';
 import {
   endpointChangeList,
+  endpointFormSwitchSummary,
   exposedEndpointNames,
+  initialEndpointMode,
   planEndpointChanges,
   type EndpointPlanInput,
 } from './componentEndpointDrafts';
@@ -34,6 +36,7 @@ const original = (
 });
 
 const input = (overrides: Partial<EndpointPlanInput>): EndpointPlanInput => ({
+  mode: 'endpoints',
   endpoints: {},
   allowedEndpoints,
   choices: {},
@@ -62,12 +65,68 @@ describe('planEndpointChanges', () => {
     ).toEqual([]);
   });
 
-  it('leaves a workload endpoint whose choice is none on the workload', () => {
+  it('exposes every row with visibility beyond project through the default type', () => {
     const plan = input({
-      endpoints: { legacy: { type: 'HTTP', visibility: ['external'] } },
+      endpoints: {
+        legacy: { type: 'HTTP', visibility: ['external'] },
+        admin: { type: 'HTTP', visibility: ['project'] },
+      },
       choices: { legacy: { type: 'none' } },
     });
+    expect(planEndpointChanges(plan)).toEqual([
+      {
+        op: 'create',
+        workloadEndpoint: 'legacy',
+        typeKey: ROUTE,
+        visibility: ['external'],
+        parameters: {},
+      },
+    ]);
+    expect(exposedEndpointNames(plan)).toEqual(['legacy']);
+  });
+
+  it('keeps a protocol no type serves project-only on the Endpoint side', () => {
+    const plan = input({
+      endpoints: { raw: { protocol: 'TCP', visibility: ['external'] } },
+    });
     expect(planEndpointChanges(plan)).toEqual([]);
+    expect(exposedEndpointNames(plan)).toEqual([]);
+  });
+
+  it('migrates mixed rows: keeps the Endpoint, creates one for the deprecated row', () => {
+    expect(
+      ops(
+        planEndpointChanges(
+          input({
+            endpoints: {
+              api: { protocol: 'HTTP', visibility: ['external'] },
+              old: { protocol: 'HTTP', visibility: ['internal'] },
+            },
+            choices: { api: { type: ROUTE, parameters: {} } },
+            originals: [original()],
+          }),
+        ),
+      ),
+    ).toEqual(['create old']);
+  });
+
+  it('deletes every Endpoint in the legacy form and keeps visibility on the workload', () => {
+    const plan = input({
+      mode: 'legacy',
+      endpoints: {
+        api: { protocol: 'HTTP', visibility: ['external'] },
+        extra: { protocol: 'HTTP', visibility: ['internal'] },
+      },
+      choices: { api: { type: ROUTE, parameters: {} } },
+      originals: [
+        original(),
+        original({ name: 'orders-api-2', visibility: ['namespace'] }),
+      ],
+    });
+    expect(ops(planEndpointChanges(plan))).toEqual([
+      'delete orders-api',
+      'delete orders-api-2',
+    ]);
     expect(exposedEndpointNames(plan)).toEqual([]);
   });
 
@@ -170,5 +229,52 @@ describe('endpointChangeList', () => {
         newValue: 'external, internal',
       },
     ]);
+  });
+});
+
+describe('initialEndpointMode', () => {
+  const external = { api: { protocol: 'HTTP', visibility: ['external'] } };
+  const projectOnly = { api: { protocol: 'HTTP', visibility: ['project'] } };
+
+  it('opens the Endpoints form when the component has Endpoints', () => {
+    expect(initialEndpointMode(external, [original()])).toBe('endpoints');
+  });
+
+  it('opens the Endpoints form without endpoints or with project-only ones', () => {
+    expect(initialEndpointMode({}, [])).toBe('endpoints');
+    expect(initialEndpointMode(projectOnly, [])).toBe('endpoints');
+  });
+
+  it('opens legacy when rows carry deprecated visibility and there are no Endpoints', () => {
+    expect(initialEndpointMode(external, [])).toBe('legacy');
+  });
+});
+
+describe('endpointFormSwitchSummary', () => {
+  it('says nothing without a switch', () => {
+    expect(endpointFormSwitchSummary('legacy', 'legacy', [])).toBeNull();
+  });
+
+  it('names the Endpoints a switch to legacy deletes', () => {
+    const changes = planEndpointChanges(
+      input({ mode: 'legacy', originals: [original()] }),
+    );
+    expect(endpointFormSwitchSummary('endpoints', 'legacy', changes)).toMatch(
+      /Deletes Endpoints orders-api/,
+    );
+  });
+
+  it('counts the endpoints a switch to Endpoints moves', () => {
+    const changes = planEndpointChanges(
+      input({
+        endpoints: {
+          a: { protocol: 'HTTP', visibility: ['external'] },
+          b: { protocol: 'HTTP', visibility: ['internal'] },
+        },
+      }),
+    );
+    expect(endpointFormSwitchSummary('legacy', 'endpoints', changes)).toMatch(
+      /Moves 2 endpoints to Endpoints \(a, b\)/,
+    );
   });
 });

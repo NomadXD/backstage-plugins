@@ -15,10 +15,36 @@ import {
 } from '@openchoreo/backstage-plugin-react';
 
 /**
- * The calls that save a component's Endpoints from its configure page. Each
- * workload endpoint is exposed through at most one Endpoint, of the type
- * chosen in its row; the Endpoint carries the row's visibilities beyond
- * project. A changed type replaces the Endpoint, since its type is immutable.
+ * The two forms of the configure page's Endpoints tab. In the Endpoints
+ * form each workload endpoint with a visibility beyond project is exposed
+ * through an Endpoint, which carries that visibility. In the legacy form the
+ * visibility stays on the workload (deprecated) and the component has no
+ * Endpoints; the ComponentType's own routes serve it, if it defines any.
+ */
+export type EndpointFormMode = 'endpoints' | 'legacy';
+
+/**
+ * The form the page opens with, derived from the component's data: legacy
+ * only when workload endpoints carry the deprecated visibility and the
+ * component has no Endpoints; the Endpoints form otherwise, even when the
+ * ComponentType allows no Endpoint types.
+ */
+export function initialEndpointMode(
+  endpoints: Record<string, ExposableEndpoint>,
+  originals: ComponentEndpointSummary[],
+): EndpointFormMode {
+  if (originals.length > 0) return 'endpoints';
+  return Object.values(endpoints).some(e => exposableVisibilities(e).length > 0)
+    ? 'legacy'
+    : 'endpoints';
+}
+
+/**
+ * The calls that save a component's Endpoints from its configure page. In
+ * the Endpoints form each workload endpoint is exposed through at most one
+ * Endpoint, of the type chosen in its row; the Endpoint carries the row's
+ * visibilities beyond project. A changed type replaces the Endpoint, since
+ * its type is immutable. The legacy form deletes every Endpoint.
  */
 export type EndpointChange =
   | {
@@ -38,14 +64,19 @@ export type EndpointChange =
   | {
       op: 'delete';
       original: ComponentEndpointSummary;
-      reason: 'notExposed' | 'workloadEndpointRemoved' | 'typeChanged';
+      reason:
+        | 'notExposed'
+        | 'workloadEndpointRemoved'
+        | 'typeChanged'
+        | 'legacyForm';
     };
 
 export interface EndpointPlanInput {
+  mode: EndpointFormMode;
   /** The workload endpoints as edited, visibility included. */
   endpoints: Record<string, ExposableEndpoint>;
   allowedEndpoints: AllowedEndpointTypeEntry[];
-  /** The "Exposed via" choice per workload endpoint, by current name. */
+  /** The Endpoint type chosen per workload endpoint, by current name. */
   choices: EndpointExposures;
   /** The component's Endpoints as on the server. */
   originals: ComponentEndpointSummary[];
@@ -86,8 +117,13 @@ export function primaryOriginals(
   return primary;
 }
 
-/** The workload endpoints exposed through an Endpoint after saving. */
+/**
+ * The workload endpoints exposed through an Endpoint after saving, whose
+ * visibility beyond project the workload no longer carries. None in the
+ * legacy form.
+ */
 export function exposedEndpointNames(input: EndpointPlanInput): string[] {
+  if (input.mode === 'legacy') return [];
   return Object.entries(input.endpoints)
     .filter(
       ([name, endpoint]) =>
@@ -109,6 +145,13 @@ export function exposedEndpointNames(input: EndpointPlanInput): string[] {
 export function planEndpointChanges(
   input: EndpointPlanInput,
 ): EndpointChange[] {
+  if (input.mode === 'legacy') {
+    return input.originals.map(original => ({
+      op: 'delete',
+      original,
+      reason: 'legacyForm',
+    }));
+  }
   const deletes: EndpointChange[] = [];
   const updates: EndpointChange[] = [];
   const creates: EndpointChange[] = [];
@@ -181,10 +224,43 @@ export function planEndpointChanges(
 }
 
 const DELETE_REASONS = {
-  notExposed: 'Deleted (no visibility beyond project, or exposed via none)',
+  notExposed: 'Deleted (no visibility beyond project)',
   workloadEndpointRemoved: 'Deleted (workload endpoint removed)',
   typeChanged: 'Replaced (endpoint type changed)',
+  legacyForm: 'Deleted (switched to legacy endpoints)',
 };
+
+/**
+ * What switching forms does on save, for the save confirmation; null when
+ * the page is still in the form it opened with.
+ */
+export function endpointFormSwitchSummary(
+  initialMode: EndpointFormMode,
+  mode: EndpointFormMode,
+  changes: EndpointChange[],
+): string | null {
+  if (initialMode === mode) return null;
+  if (mode === 'legacy') {
+    const deleted = changes.flatMap(c =>
+      c.op === 'delete' ? [c.original.name] : [],
+    );
+    return deleted.length > 0
+      ? `Switches to legacy endpoints. Deletes Endpoints ${deleted.join(
+          ', ',
+        )}: their visibility is stored on the workload instead and served by the component type's own routes, if it defines any, possibly at a different host.`
+      : 'Switches to legacy endpoints: visibility beyond project is stored on the workload.';
+  }
+  const moved = changes.flatMap(c =>
+    c.op === 'create' ? [c.workloadEndpoint] : [],
+  );
+  return moved.length > 0
+    ? `Switches to Endpoints. Moves ${moved.length} endpoint${
+        moved.length === 1 ? '' : 's'
+      } to Endpoints (${moved.join(
+        ', ',
+      )}): their visibility beyond project leaves the workload.`
+    : 'Switches to Endpoints: endpoints with visibility beyond project are exposed through Endpoints.';
+}
 
 /** The planned Endpoint calls, as the save confirmation lists them. */
 export function endpointChangeList(changes: EndpointChange[]): Change[] {

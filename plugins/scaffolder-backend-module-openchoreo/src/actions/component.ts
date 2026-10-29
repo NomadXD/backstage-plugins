@@ -15,7 +15,6 @@ import {
   CHOREO_ANNOTATIONS,
   ComponentTypeUtils,
   parseWorkflowParametersAnnotation,
-  workloadEndpointsForSave,
 } from '@openchoreo/backstage-plugin-common';
 import {
   type ImmediateCatalogService,
@@ -23,12 +22,6 @@ import {
   translateComponentToEntity,
 } from '@openchoreo/backstage-plugin-catalog-backend-module';
 import type { AuthService } from '@backstage/backend-plugin-api';
-import {
-  createComponentEndpoints,
-  fetchAllowedEndpoints,
-  planComponentEndpoints,
-  type WorkloadEndpointLike,
-} from './componentEndpoints';
 
 /**
  * Namespace used for cluster-scoped resources such as ClusterWorkflows.
@@ -164,7 +157,7 @@ export const createComponentAction = (
           z
             .record(z.unknown(), {
               description:
-                'Workload details (CTD parameters, endpoints, env vars, file mounts, traits) collected by WorkloadDetailsField',
+                'Workload details (CTD parameters, env vars, file mounts, traits) collected by WorkloadDetailsField',
             })
             .optional(),
         repo_url: z =>
@@ -218,13 +211,6 @@ export const createComponentAction = (
           z.string({
             description: 'The namespace where the component was created',
           }),
-        endpointNames: z =>
-          z
-            .array(z.string(), {
-              description:
-                'Endpoints created to expose the workload endpoints, per the ComponentType allowedEndpoints',
-            })
-            .optional(),
       },
     },
     async handler(ctx) {
@@ -341,8 +327,8 @@ export const createComponentAction = (
           config: trait.config,
         }));
 
-        // Extract workload data from workloadDetails
-        const workloadEndpoints = workloadDetails?.endpoints;
+        // Extract workload data from workloadDetails. Endpoints are not
+        // collected at creation; they are defined on the configure page.
         const workloadEnvVars = workloadDetails?.envVars;
         const workloadFileMounts = workloadDetails?.fileMounts;
 
@@ -544,19 +530,13 @@ export const createComponentAction = (
         //
         // The Workload CRD requires `image` (Required, MinLength=1) on Container,
         // so env vars and file mounts can only be included when there's an image.
-        // Endpoints live at the spec level and don't require a container.
         const containerImage = (ctx.input as any).containerImage;
-        const hasEndpoints =
-          workloadEndpoints && Object.keys(workloadEndpoints).length > 0;
         const hasEnvVars = workloadEnvVars && workloadEnvVars.length > 0;
         const hasFileMounts =
           workloadFileMounts && workloadFileMounts.length > 0;
-        const hasWorkloadData = hasEndpoints || hasEnvVars || hasFileMounts;
+        const hasWorkloadData = hasEnvVars || hasFileMounts;
 
         if ((isFromImage && containerImage) || hasWorkloadData) {
-          // Extract port from CTD parameters if available (legacy fallback)
-          const port = ctdParameters.port as number | undefined;
-
           // For non-image deployments, only pass env vars and file mounts if
           // there's also an image, since the CRD requires image on Container.
           const effectiveContainerImage = isFromImage
@@ -567,41 +547,11 @@ export const createComponentAction = (
             namespaceName: namespaceName,
             projectName: projectName,
             containerImage: effectiveContainerImage,
-            port: port,
-            endpoints: workloadEndpoints,
             envVars: effectiveContainerImage ? workloadEnvVars : undefined,
             fileMounts: effectiveContainerImage
               ? workloadFileMounts
               : undefined,
           });
-
-          // Plan the Endpoints before creating the workload: a workload
-          // endpoint exposed through an Endpoint keeps only project
-          // visibility, since the Endpoint carries the rest. Without
-          // allowedEndpoints nothing is planned and the workload keeps its
-          // visibility, which the ComponentType's own templates read.
-          const allowedEndpoints = await fetchAllowedEndpoints({
-            client,
-            logger: ctx.logger,
-            namespaceName,
-            componentTypeKind,
-            componentTypeName: ctx.input.componentType,
-          });
-          const plannedEndpoints = planComponentEndpoints(
-            ctx.input.componentName,
-            (workloadResource.spec.endpoints ?? {}) as Record<
-              string,
-              WorkloadEndpointLike
-            >,
-            allowedEndpoints,
-            workloadDetails?.endpointExposures,
-          );
-          if (workloadResource.spec.endpoints) {
-            workloadResource.spec.endpoints = workloadEndpointsForSave(
-              workloadResource.spec.endpoints,
-              plannedEndpoints.map(p => p.workloadEndpoint),
-            );
-          }
 
           ctx.logger.debug(
             `Creating Workload resource: ${JSON.stringify(workloadResource)}`,
@@ -632,22 +582,6 @@ export const createComponentAction = (
               `Workload created successfully: ${JSON.stringify(workloadData)}`,
             );
 
-            // The Endpoint controller makes this component their owner
-            // and, with autoDeploy, deploys them alongside it.
-            const createdEndpoints = await createComponentEndpoints({
-              client,
-              logger: ctx.logger,
-              namespaceName,
-              projectName,
-              componentName: ctx.input.componentName,
-              planned: plannedEndpoints,
-              autoDeploy,
-              insertEntity: entity => immediateCatalog.insertEntity(entity),
-              defaultOwner:
-                config.getOptionalString('openchoreo.defaultOwner') ||
-                'openchoreo-users',
-            });
-            ctx.output('endpointNames', createdEndpoints);
           }
         } else if (isExternalCI) {
           ctx.logger.info(

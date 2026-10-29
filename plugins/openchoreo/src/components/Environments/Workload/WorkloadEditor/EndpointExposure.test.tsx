@@ -2,10 +2,10 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { renderHook } from '@testing-library/react';
 import { TestApiProvider } from '@backstage/test-utils';
 import type { ReactNode } from 'react';
-import { openChoreoClientApiRef } from '../../api/OpenChoreoClientApi';
+import { openChoreoClientApiRef } from '../../../../api/OpenChoreoClientApi';
 import {
   EndpointExposure,
-  formExposures,
+  chosenEndpointTypeKeys,
   useEndpointTypeSchemas,
 } from './EndpointExposure';
 
@@ -126,7 +126,7 @@ describe('EndpointExposure', () => {
     ]);
   });
 
-  it('stays empty for an existing endpoint not yet moved to an Endpoint', () => {
+  it('preselects the default type for a row loaded with a "none" choice', () => {
     render(
       <EndpointExposure
         endpoint={{ type: 'HTTP', visibility: ['external'] }}
@@ -136,11 +136,12 @@ describe('EndpointExposure', () => {
         onChange={jest.fn()}
       />,
     );
-    expect(screen.getByText('Choose an endpoint type')).toBeInTheDocument();
-    expect(screen.getByText(/stored on the workload/)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /http-route/ }),
+    ).toBeInTheDocument();
   });
 
-  it('shows only the deprecation note when no type fits the protocol', () => {
+  it('notes that visibility stays on the workload when no type fits the protocol', () => {
     render(
       <EndpointExposure
         endpoint={{ protocol: 'TCP', visibility: ['external'] }}
@@ -150,36 +151,29 @@ describe('EndpointExposure', () => {
       />,
     );
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
-    expect(screen.getByText(/stored on the workload/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/No endpoint type is allowed for TCP/),
+    ).toBeInTheDocument();
   });
 });
 
-describe('formExposures', () => {
-  it('submits one resolved choice per exposable endpoint', () => {
+describe('chosenEndpointTypeKeys', () => {
+  it('lists the resolved type of every exposable row', () => {
     expect(
-      formExposures(
+      chosenEndpointTypeKeys(
         {
           api: { protocol: 'HTTP', visibility: ['external'] },
           rpc: { protocol: 'gRPC', visibility: ['internal'] },
           admin: { protocol: 'HTTP', visibility: ['project'] },
           raw: { protocol: 'TCP', visibility: ['external'] },
-          gone: { protocol: 'HTTP', visibility: [] },
         },
         [httpRoute, managed, grpcOptIn],
-        {
-          api: {
-            type: 'ClusterEndpointType/managed-api',
-            parameters: { plan: 'gold' },
-          },
-        },
+        { api: { type: 'ClusterEndpointType/managed-api' } },
       ),
-    ).toEqual({
-      api: {
-        type: 'ClusterEndpointType/managed-api',
-        parameters: { plan: 'gold' },
-      },
-      rpc: { type: 'ClusterEndpointType/grpc-route' },
-    });
+    ).toEqual([
+      'ClusterEndpointType/grpc-route',
+      'ClusterEndpointType/managed-api',
+    ]);
   });
 });
 

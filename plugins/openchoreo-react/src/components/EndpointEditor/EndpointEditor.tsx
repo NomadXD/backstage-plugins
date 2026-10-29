@@ -270,6 +270,12 @@ export interface EndpointEditorProps {
    * schema content field while editing.
    */
   details?: ReactNode;
+  /**
+   * When set, visibilities beyond project cannot be added and this reason is
+   * shown under the visibility field; ones already selected can still be
+   * cleared.
+   */
+  visibilityDisabledReason?: string;
 }
 
 /**
@@ -292,6 +298,7 @@ export const EndpointEditor: FC<EndpointEditorProps> = ({
   onNameChange,
   onRemove,
   details,
+  visibilityDisabledReason,
 }) => {
   const classes = useStyles();
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false);
@@ -442,6 +449,7 @@ export const EndpointEditor: FC<EndpointEditorProps> = ({
                 const isChecked =
                   opt.alwaysSelected ||
                   (currentVisibility as string[]).includes(opt.value);
+                const blocked = !!visibilityDisabledReason && !isChecked;
                 return (
                   <FormControlLabel
                     key={opt.value}
@@ -460,11 +468,16 @@ export const EndpointEditor: FC<EndpointEditorProps> = ({
                       />
                     }
                     label={opt.label}
-                    disabled={disabled || opt.disabled}
+                    disabled={disabled || opt.disabled || blocked}
                   />
                 );
               })}
             </FormGroup>
+            {visibilityDisabledReason && (
+              <Typography variant="caption" color="textSecondary">
+                {visibilityDisabledReason}
+              </Typography>
+            )}
           </FormControl>
         </Grid>
         <Grid item xs={12}>
