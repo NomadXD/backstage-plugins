@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogTitle,
@@ -32,7 +33,8 @@ interface URLRowProps {
   security?: EndpointURLSecurity;
 }
 
-const URLRow = ({ url, label, security }: URLRowProps) => {
+/** One URL with its visibility label, security and a copy button. */
+export const URLRow = ({ url, label, security }: URLRowProps) => {
   const theme = useTheme();
   const [copied, setCopied] = useState(false);
 
@@ -131,13 +133,21 @@ interface InvokeUrlsDialogProps {
   open: boolean;
   onClose: () => void;
   endpoints: EndpointInfo[];
+  /** Catalog namespace of the component, which its Endpoints share. */
+  namespaceName?: string;
 }
+
+/** The catalog page of the Endpoint a workload endpoint is exposed through. */
+export const endpointCatalogPath = (namespaceName: string, name: string) =>
+  `/catalog/${namespaceName}/endpoint/${name}`;
 
 export const InvokeUrlsDialog = ({
   open,
   onClose,
   endpoints,
+  namespaceName = 'default',
 }: InvokeUrlsDialogProps) => {
+  const navigate = useNavigate();
   return (
     <Dialog
       open={open}
@@ -169,13 +179,22 @@ export const InvokeUrlsDialog = ({
                   </Typography>
                 )}
                 {endpoint.endpointName && (
-                  <Typography
-                    variant="caption"
-                    color="textSecondary"
-                    style={{ marginLeft: 8 }}
+                  <Button
+                    size="small"
+                    color="primary"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={() => {
+                      onClose();
+                      navigate(
+                        endpointCatalogPath(
+                          namespaceName,
+                          endpoint.endpointName!,
+                        ),
+                      );
+                    }}
                   >
-                    via Endpoint {endpoint.endpointName}
-                  </Typography>
+                    Manage Endpoint
+                  </Button>
                 )}
               </Box>
               <Divider style={{ marginBottom: 12 }} />

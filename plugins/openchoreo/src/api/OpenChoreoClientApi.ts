@@ -14,6 +14,7 @@ import type {
   EndpointTypeKind,
 } from '@openchoreo/backstage-plugin-common';
 import type { Environment } from '../components/RuntimeLogs/types';
+import type { EndpointURLDetails } from '../components/Environments/hooks/useEnvironmentData';
 
 // ============================================
 // Response Types
@@ -263,6 +264,13 @@ export interface EndpointEnvironment {
   lastDeployed?: string;
   /** How each backend resolved in this environment. */
   backends?: ResolvedEndpointBackend[];
+  /** The URLs the Endpoint is invoked at here, per visibility. */
+  urls?: Partial<
+    Record<
+      'external' | 'internal' | 'namespace' | 'project',
+      EndpointURLDetails
+    >
+  >;
   promotionTargets?: {
     name: string;
     resourceName?: string;
@@ -938,6 +946,15 @@ export interface OpenChoreoClientApi {
 
   /** Delete one of a component's Endpoints. */
   deleteComponentEndpoint(entity: Entity, endpointName: string): Promise<void>;
+
+  /**
+   * Add a backend to an Endpoint entity's Endpoint. A component-managed
+   * Endpoint moves to its project: it loses its source-component labels.
+   */
+  addEndpointBackend(
+    entity: Entity,
+    backend: { component: string; workloadEndpoint: string; weight?: number },
+  ): Promise<{ name: string; backendName: string }>;
 
   /**
    * Fetch per-environment deploy info for a Project entity. Returns one entry

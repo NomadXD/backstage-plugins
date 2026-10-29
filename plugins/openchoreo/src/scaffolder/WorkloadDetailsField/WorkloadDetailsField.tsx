@@ -681,8 +681,7 @@ export const WorkloadDetailsField = ({
   });
 
   const isAnyEditorActive =
-    envEditBuffer.isAnyRowEditing ||
-    fileEditBuffer.isAnyRowEditing;
+    envEditBuffer.isAnyRowEditing || fileEditBuffer.isAnyRowEditing;
   isAnyEditorActiveRef.current = isAnyEditorActive;
 
   // Sync editing state into formData so the stepper validation can block Next
@@ -939,12 +938,7 @@ export const WorkloadDetailsField = ({
 
           const updatedTraits = [...addedTraits, newTrait];
           setAddedTraits(updatedTraits);
-          emitChange(
-            ctdParameters,
-            envVars,
-            fileMounts,
-            updatedTraits,
-          );
+          emitChange(ctdParameters, envVars, fileMounts, updatedTraits);
           setExpandedTrait(newTrait.id);
         }
       } catch (err) {

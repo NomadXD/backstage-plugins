@@ -1,5 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { InvokeUrlsDialog } from './InvokeUrlsDialog';
+
+const mockNavigate = jest.fn();
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => mockNavigate,
+}));
 
 describe('InvokeUrlsDialog', () => {
   it('shows ReleaseBinding URLs without security, as for older ComponentTypes', () => {
@@ -28,7 +34,9 @@ describe('InvokeUrlsDialog', () => {
       screen.getByText('https://greeter.example.com:443'),
     ).toBeInTheDocument();
     expect(screen.getByText('http://greeter.svc:8080')).toBeInTheDocument();
-    expect(screen.queryByText(/via Endpoint/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Manage Endpoint' }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(/API key|No authentication/),
     ).not.toBeInTheDocument();
@@ -75,7 +83,7 @@ describe('InvokeUrlsDialog', () => {
       />,
     );
 
-    expect(screen.getByText('via Endpoint greeter-http')).toBeInTheDocument();
+    expect(screen.queryByText(/via Endpoint/)).not.toBeInTheDocument();
     expect(
       screen.getByText('https://api.example.com/greeter'),
     ).toBeInTheDocument();
@@ -86,5 +94,31 @@ describe('InvokeUrlsDialog', () => {
     expect(
       screen.queryByText('http://greeter.svc:8080'),
     ).not.toBeInTheDocument();
+  });
+
+  it('opens the catalog page of the Endpoint behind a workload endpoint', () => {
+    const onClose = jest.fn();
+    render(
+      <InvokeUrlsDialog
+        open
+        onClose={onClose}
+        namespaceName="acme"
+        endpoints={[
+          {
+            name: 'http',
+            endpointName: 'greeter-http',
+            externalURLs: {
+              https: { scheme: 'https', host: 'api.example.com', port: 443 },
+            },
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Endpoint' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith(
+      '/catalog/acme/endpoint/greeter-http',
+    );
   });
 });

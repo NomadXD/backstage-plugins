@@ -1,9 +1,23 @@
-import { Box, Chip, LinearProgress, Typography } from '@material-ui/core';
+import { useState } from 'react';
+import {
+  Box,
+  Button,
+  Chip,
+  LinearProgress,
+  Typography,
+} from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
-import { EntityRefLink, useEntity } from '@backstage/plugin-catalog-react';
+import { Alert } from '@material-ui/lab';
+import AddIcon from '@material-ui/icons/Add';
+import {
+  EntityRefLink,
+  useAsyncEntity,
+  useEntity,
+} from '@backstage/plugin-catalog-react';
 import { CHOREO_ANNOTATIONS } from '@openchoreo/backstage-plugin-common';
 import { Card } from '@openchoreo/backstage-design-system';
 import { useDataplaneOverviewStyles } from '../DataplaneOverview/styles';
+import { AddEndpointBackendDialog } from './AddEndpointBackendDialog';
 
 const useStyles = makeStyles(theme => ({
   section: {
@@ -61,12 +75,16 @@ function formatShare(share: number): string {
  * Overview card showing how an Endpoint routes: the (Cluster)EndpointType that
  * renders it, the scopes it is exposed to, and the backends it splits traffic
  * across. Reads the catalog entity only; per-environment resolution lives on
- * the Deploy tab.
+ * the Deploy tab. Backends can be added here; a component-managed Endpoint
+ * moves to its project when one is.
  */
 export const EndpointRoutingCard = () => {
   const classes = useDataplaneOverviewStyles();
   const ownClasses = useStyles();
   const { entity } = useEntity();
+  const { refresh } = useAsyncEntity();
+  const [addOpen, setAddOpen] = useState(false);
+  const [added, setAdded] = useState(false);
 
   const annotations = entity.metadata.annotations ?? {};
   const typeName = annotations[CHOREO_ANNOTATIONS.ENDPOINTTYPE];
@@ -75,6 +93,7 @@ export const EndpointRoutingCard = () => {
   const spec = (entity.spec ?? {}) as {
     visibility?: string[];
     backends?: EndpointBackend[];
+    managedByComponent?: string;
   };
   const visibility = spec.visibility ?? [];
   const backends = spec.backends ?? [];
@@ -85,7 +104,34 @@ export const EndpointRoutingCard = () => {
     <Card padding={24} className={classes.card}>
       <Box className={classes.cardHeader}>
         <Typography variant="h5">Routing</Typography>
+        <Button
+          size="small"
+          color="primary"
+          startIcon={<AddIcon />}
+          onClick={() => setAddOpen(true)}
+        >
+          Add backend
+        </Button>
       </Box>
+      {added && (
+        <Box mb={2}>
+          <Alert severity="success" onClose={() => setAdded(false)}>
+            Backend added. The Endpoint belongs to its project now; this page
+            shows it once the catalog catches up, in a few seconds.
+          </Alert>
+        </Box>
+      )}
+      <AddEndpointBackendDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdded={() => {
+          setAdded(true);
+          refresh?.();
+        }}
+        entity={entity}
+        backends={backends}
+        managedByComponent={spec.managedByComponent}
+      />
 
       <Box className={classes.infoRow}>
         <Typography className={classes.infoLabel}>Type</Typography>

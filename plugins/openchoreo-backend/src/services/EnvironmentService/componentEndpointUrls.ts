@@ -18,7 +18,7 @@ export interface ComponentEndpointBindings {
   bindings: EndpointReleaseBinding[];
 }
 
-function toDetails(url: ResolvedEndpointURL): EndpointURLDetails {
+export function toDetails(url: ResolvedEndpointURL): EndpointURLDetails {
   const security: EndpointURLSecurity | undefined = url.security
     ? {
         scheme: url.security.scheme,

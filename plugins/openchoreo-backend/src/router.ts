@@ -1712,6 +1712,25 @@ export async function createRouter({
     );
   });
 
+  router.post('/endpoint-backends', requireAuth, async (req, res) => {
+    const { namespaceName, endpointName, component, workloadEndpoint, weight } =
+      req.body;
+    if (!namespaceName || !endpointName || !component || !workloadEndpoint) {
+      throw new InputError(
+        'namespaceName, endpointName, component and workloadEndpoint are required in request body',
+      );
+    }
+    if (weight !== undefined && (!Number.isInteger(weight) || weight < 0)) {
+      throw new InputError('weight must be a non-negative integer');
+    }
+    res.json(
+      await endpointInfoService.addEndpointBackend(
+        { namespaceName, endpointName, component, workloadEndpoint, weight },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
+
   router.delete('/component-endpoints', requireAuth, async (req, res) => {
     const { endpointName } = req.body;
     if (!endpointName) {
