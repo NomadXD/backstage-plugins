@@ -18,7 +18,7 @@ import { CHOREO_ANNOTATIONS } from '@openchoreo/backstage-plugin-common';
 import { openChoreoClientApiRef } from '../../api/OpenChoreoClientApi';
 import { useProjectWorkloadEndpoints } from '../../scaffolder/EndpointBackendsField/useProjectWorkloadEndpoints';
 import { getErrorMessage } from '../../utils/errorUtils';
-import type { EndpointBackend } from './EndpointRoutingCard';
+import type { EndpointBackend } from '../EndpointOverview/EndpointBackendList';
 
 const optionKey = (component: string, endpoint: string) =>
   `${component}/${endpoint}`;

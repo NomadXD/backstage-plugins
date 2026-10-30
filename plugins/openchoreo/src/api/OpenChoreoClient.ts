@@ -200,6 +200,16 @@ function componentRefBody(entity: Entity) {
   };
 }
 
+/** The Endpoint an Endpoint entity stands for, as the BFF's bodies name it. */
+function endpointRefBody(entity: Entity) {
+  const annotations = entity.metadata.annotations ?? {};
+  return {
+    namespaceName: annotations[CHOREO_ANNOTATIONS.NAMESPACE],
+    endpointName:
+      annotations[CHOREO_ANNOTATIONS.ENDPOINT] ?? entity.metadata.name,
+  };
+}
+
 function tryExtractEntityMetadata(entity: Entity): EntityMetadata | null {
   const component = entity.metadata.annotations?.[CHOREO_ANNOTATIONS.COMPONENT];
   const project = entity.metadata.annotations?.[CHOREO_ANNOTATIONS.PROJECT];
@@ -802,15 +812,30 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
     entity: Entity,
     backend: { component: string; workloadEndpoint: string; weight?: number },
   ): Promise<{ name: string; backendName: string }> {
-    const annotations = entity.metadata.annotations ?? {};
     return this.apiFetch(API_ENDPOINTS.ENDPOINT_BACKENDS, {
       method: 'POST',
-      body: {
-        namespaceName: annotations[CHOREO_ANNOTATIONS.NAMESPACE],
-        endpointName:
-          annotations[CHOREO_ANNOTATIONS.ENDPOINT] ?? entity.metadata.name,
-        ...backend,
-      },
+      body: { ...endpointRefBody(entity), ...backend },
+    });
+  }
+
+  async updateEndpointBackendWeight(
+    entity: Entity,
+    backendName: string,
+    weight: number,
+  ): Promise<void> {
+    await this.apiFetch(API_ENDPOINTS.ENDPOINT_BACKENDS, {
+      method: 'PATCH',
+      body: { ...endpointRefBody(entity), backendName, weight },
+    });
+  }
+
+  async removeEndpointBackend(
+    entity: Entity,
+    backendName: string,
+  ): Promise<void> {
+    await this.apiFetch(API_ENDPOINTS.ENDPOINT_BACKENDS, {
+      method: 'DELETE',
+      body: { ...endpointRefBody(entity), backendName },
     });
   }
 

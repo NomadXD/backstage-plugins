@@ -114,6 +114,19 @@ function requestReleaseLine(req: express.Request): string | undefined {
   return typeof value === 'string' ? toStoredReleaseLine(value) : undefined;
 }
 
+/** Backend weights the Endpoint CRD accepts. */
+const MAX_BACKEND_WEIGHT = 1_000_000;
+const BACKEND_WEIGHT_ERROR = `weight must be an integer from 0 to ${MAX_BACKEND_WEIGHT}`;
+
+function isBackendWeight(weight: unknown): weight is number {
+  return (
+    typeof weight === 'number' &&
+    Number.isInteger(weight) &&
+    weight >= 0 &&
+    weight <= MAX_BACKEND_WEIGHT
+  );
+}
+
 export async function createRouter({
   environmentInfoService,
   cellDiagramInfoService,
@@ -1720,12 +1733,45 @@ export async function createRouter({
         'namespaceName, endpointName, component and workloadEndpoint are required in request body',
       );
     }
-    if (weight !== undefined && (!Number.isInteger(weight) || weight < 0)) {
-      throw new InputError('weight must be a non-negative integer');
+    if (weight !== undefined && !isBackendWeight(weight)) {
+      throw new InputError(BACKEND_WEIGHT_ERROR);
     }
     res.json(
       await endpointInfoService.addEndpointBackend(
         { namespaceName, endpointName, component, workloadEndpoint, weight },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
+
+  router.patch('/endpoint-backends', requireAuth, async (req, res) => {
+    const { namespaceName, endpointName, backendName, weight } = req.body;
+    if (!namespaceName || !endpointName || !backendName) {
+      throw new InputError(
+        'namespaceName, endpointName and backendName are required in request body',
+      );
+    }
+    if (!isBackendWeight(weight)) {
+      throw new InputError(BACKEND_WEIGHT_ERROR);
+    }
+    res.json(
+      await endpointInfoService.updateEndpointBackendWeight(
+        { namespaceName, endpointName, backendName, weight },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
+
+  router.delete('/endpoint-backends', requireAuth, async (req, res) => {
+    const { namespaceName, endpointName, backendName } = req.body;
+    if (!namespaceName || !endpointName || !backendName) {
+      throw new InputError(
+        'namespaceName, endpointName and backendName are required in request body',
+      );
+    }
+    res.json(
+      await endpointInfoService.removeEndpointBackend(
+        { namespaceName, endpointName, backendName },
         getUserTokenFromRequest(req),
       ),
     );
