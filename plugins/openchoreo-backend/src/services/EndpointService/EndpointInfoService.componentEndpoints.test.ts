@@ -379,4 +379,99 @@ describe('EndpointInfoService component Endpoints', () => {
       expect(mockPUT).not.toHaveBeenCalled();
     });
   });
+
+  describe('backend weight and removal', () => {
+    const twoBackends = () => {
+      const ep = endpoint('orders-api');
+      ep.metadata.labels = {} as any;
+      ep.spec.backendRefs.push({
+        name: 'payments-http',
+        kind: 'Component',
+        weight: 1,
+        component: { name: 'payments', endpoint: 'http' },
+      });
+      return ep;
+    };
+    const target = { namespaceName: 'acme', endpointName: 'orders-api' };
+
+    it('sets the weight of one backend', async () => {
+      mockGET.mockResolvedValue(createOkResponse(twoBackends()));
+      mockPUT.mockResolvedValue(createOkResponse({}));
+
+      await service.updateEndpointBackendWeight({
+        ...target,
+        backendName: 'payments-http',
+        weight: 9,
+      });
+
+      const refs = mockPUT.mock.calls[0][1].body.spec.backendRefs;
+      expect(refs.map((r: any) => [r.name, r.weight])).toEqual([
+        ['orders', 1],
+        ['payments-http', 9],
+      ]);
+    });
+
+    it('removes a backend, keeping the labels as they are', async () => {
+      const ep = endpoint('orders-api');
+      ep.spec.backendRefs.push({
+        name: 'payments-http',
+        kind: 'Component',
+        weight: 1,
+        component: { name: 'payments', endpoint: 'http' },
+      });
+      mockGET.mockResolvedValue(createOkResponse(ep));
+      mockPUT.mockResolvedValue(createOkResponse({}));
+
+      await service.removeEndpointBackend({
+        ...target,
+        backendName: 'payments-http',
+      });
+
+      const body = mockPUT.mock.calls[0][1].body;
+      expect(body.spec.backendRefs.map((r: any) => r.name)).toEqual(['orders']);
+      expect(body.metadata.labels).toEqual(ep.metadata.labels);
+    });
+
+    it('refuses to remove the last backend', async () => {
+      mockGET.mockResolvedValue(createOkResponse(endpoint('orders-api')));
+
+      await expect(
+        service.removeEndpointBackend({ ...target, backendName: 'orders' }),
+      ).rejects.toThrow(/at least one backend/);
+      expect(mockPUT).not.toHaveBeenCalled();
+    });
+
+    it('refuses an unknown backend', async () => {
+      mockGET.mockResolvedValue(createOkResponse(twoBackends()));
+
+      await expect(
+        service.updateEndpointBackendWeight({
+          ...target,
+          backendName: 'nope',
+          weight: 1,
+        }),
+      ).rejects.toThrow(/has no backend nope/);
+    });
+
+    it('refuses a backend past the CRD maximum of 16', async () => {
+      const ep = endpoint('orders-api');
+      for (let i = 1; i < 16; i++) {
+        ep.spec.backendRefs.push({
+          name: `b${i}`,
+          kind: 'Component',
+          weight: 1,
+          component: { name: `c${i}`, endpoint: 'http' },
+        });
+      }
+      mockGET.mockResolvedValue(createOkResponse(ep));
+
+      await expect(
+        service.addEndpointBackend({
+          ...target,
+          component: 'payments',
+          workloadEndpoint: 'http',
+        }),
+      ).rejects.toThrow(/maximum of 16 backends/);
+    });
+  });
 });

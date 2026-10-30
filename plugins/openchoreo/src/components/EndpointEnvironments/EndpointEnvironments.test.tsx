@@ -99,6 +99,12 @@ jest.mock('@openchoreo/backstage-plugin-react', () => ({
   }),
 }));
 
+// The Backends section reads the catalog entity and calls the API; it has its
+// own test file.
+jest.mock('./EndpointBackendsSection', () => ({
+  EndpointBackendsSection: () => <div data-testid="backends-section" />,
+}));
+
 jest.mock('../Environments/components', () => ({
   NotificationBanner: ({ notification }: any) =>
     notification ? (

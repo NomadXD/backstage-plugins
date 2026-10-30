@@ -956,6 +956,16 @@ export interface OpenChoreoClientApi {
     backend: { component: string; workloadEndpoint: string; weight?: number },
   ): Promise<{ name: string; backendName: string }>;
 
+  /** Set the weight of one of an Endpoint entity's backends. */
+  updateEndpointBackendWeight(
+    entity: Entity,
+    backendName: string,
+    weight: number,
+  ): Promise<void>;
+
+  /** Remove one of an Endpoint entity's backends; the last one cannot be. */
+  removeEndpointBackend(entity: Entity, backendName: string): Promise<void>;
+
   /**
    * Fetch per-environment deploy info for a Project entity. Returns one entry
    * per environment in the project's deployment pipeline (including

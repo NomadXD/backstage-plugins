@@ -1,23 +1,15 @@
-import { useState } from 'react';
-import {
-  Box,
-  Button,
-  Chip,
-  LinearProgress,
-  Typography,
-} from '@material-ui/core';
+import { Box, Chip, Typography } from '@material-ui/core';
 import { makeStyles } from '@material-ui/core/styles';
-import { Alert } from '@material-ui/lab';
-import AddIcon from '@material-ui/icons/Add';
-import {
-  EntityRefLink,
-  useAsyncEntity,
-  useEntity,
-} from '@backstage/plugin-catalog-react';
+import { EntityRefLink, useEntity } from '@backstage/plugin-catalog-react';
 import { CHOREO_ANNOTATIONS } from '@openchoreo/backstage-plugin-common';
 import { Card } from '@openchoreo/backstage-design-system';
 import { useDataplaneOverviewStyles } from '../DataplaneOverview/styles';
-import { AddEndpointBackendDialog } from './AddEndpointBackendDialog';
+import {
+  EndpointBackendList,
+  type EndpointBackend,
+} from './EndpointBackendList';
+
+export { trafficShares, type EndpointBackend } from './EndpointBackendList';
 
 const useStyles = makeStyles(theme => ({
   section: {
@@ -28,63 +20,19 @@ const useStyles = makeStyles(theme => ({
     flexWrap: 'wrap',
     gap: theme.spacing(0.5),
   },
-  backend: {
-    padding: theme.spacing(1, 0),
-    borderBottom: `1px solid ${theme.palette.divider}`,
-    '&:last-child': {
-      borderBottom: 'none',
-    },
-  },
-  backendHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    gap: theme.spacing(1),
-  },
-  share: {
-    marginTop: theme.spacing(0.5),
-    height: 6,
-    borderRadius: 3,
-  },
 }));
-
-/** One backend as ingested onto the Endpoint entity's spec.backends. */
-export interface EndpointBackend {
-  name: string;
-  kind?: string;
-  component?: string;
-  endpoint?: string;
-  weight?: number;
-}
-
-/**
- * Share of traffic each backend receives. A backend without a weight counts
- * as 1, the CRD default, and a total of 0 sends nothing anywhere.
- */
-export function trafficShares(backends: EndpointBackend[]): number[] {
-  const weights = backends.map(b => b.weight ?? 1);
-  const total = weights.reduce((sum, w) => sum + w, 0);
-  return weights.map(w => (total > 0 ? (w / total) * 100 : 0));
-}
-
-function formatShare(share: number): string {
-  return Number.isInteger(share) ? `${share}%` : `${share.toFixed(1)}%`;
-}
 
 /**
  * Overview card showing how an Endpoint routes: the (Cluster)EndpointType that
  * renders it, the scopes it is exposed to, and the backends it splits traffic
- * across. Reads the catalog entity only; per-environment resolution lives on
- * the Deploy tab. Backends can be added here; a component-managed Endpoint
- * moves to its project when one is.
+ * across. Reads the catalog entity only and changes nothing: backends are
+ * managed from the Set up card on the Deploy tab, where each change becomes a
+ * release to deploy.
  */
 export const EndpointRoutingCard = () => {
   const classes = useDataplaneOverviewStyles();
   const ownClasses = useStyles();
   const { entity } = useEntity();
-  const { refresh } = useAsyncEntity();
-  const [addOpen, setAddOpen] = useState(false);
-  const [added, setAdded] = useState(false);
 
   const annotations = entity.metadata.annotations ?? {};
   const typeName = annotations[CHOREO_ANNOTATIONS.ENDPOINTTYPE];
@@ -93,45 +41,16 @@ export const EndpointRoutingCard = () => {
   const spec = (entity.spec ?? {}) as {
     visibility?: string[];
     backends?: EndpointBackend[];
-    managedByComponent?: string;
   };
   const visibility = spec.visibility ?? [];
   const backends = spec.backends ?? [];
-  const shares = trafficShares(backends);
   const namespace = entity.metadata.namespace ?? 'default';
 
   return (
     <Card padding={24} className={classes.card}>
       <Box className={classes.cardHeader}>
         <Typography variant="h5">Routing</Typography>
-        <Button
-          size="small"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={() => setAddOpen(true)}
-        >
-          Add backend
-        </Button>
       </Box>
-      {added && (
-        <Box mb={2}>
-          <Alert severity="success" onClose={() => setAdded(false)}>
-            Backend added. The Endpoint belongs to its project now; this page
-            shows it once the catalog catches up, in a few seconds.
-          </Alert>
-        </Box>
-      )}
-      <AddEndpointBackendDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onAdded={() => {
-          setAdded(true);
-          refresh?.();
-        }}
-        entity={entity}
-        backends={backends}
-        managedByComponent={spec.managedByComponent}
-      />
 
       <Box className={classes.infoRow}>
         <Typography className={classes.infoLabel}>Type</Typography>
@@ -172,43 +91,7 @@ export const EndpointRoutingCard = () => {
             No backends configured.
           </Typography>
         ) : (
-          backends.map((backend, i) => (
-            <Box key={backend.name} className={ownClasses.backend}>
-              <Box className={ownClasses.backendHeader}>
-                <Typography variant="body2" component="div">
-                  {backend.component ? (
-                    <EntityRefLink
-                      entityRef={{
-                        kind: 'component',
-                        namespace,
-                        name: backend.component,
-                      }}
-                    />
-                  ) : (
-                    backend.name
-                  )}
-                  {backend.endpoint && (
-                    <Typography
-                      variant="body2"
-                      color="textSecondary"
-                      component="span"
-                    >
-                      {` / ${backend.endpoint}`}
-                    </Typography>
-                  )}
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  {formatShare(shares[i])}
-                </Typography>
-              </Box>
-              <LinearProgress
-                variant="determinate"
-                value={shares[i]}
-                className={ownClasses.share}
-                aria-label={`${backend.name} traffic share`}
-              />
-            </Box>
-          ))
+          <EndpointBackendList backends={backends} namespace={namespace} />
         )}
       </Box>
     </Card>

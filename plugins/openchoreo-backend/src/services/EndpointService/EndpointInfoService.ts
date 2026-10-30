@@ -3,6 +3,7 @@ import { InputError, NotAllowedError } from '@backstage/errors';
 import {
   createOpenChoreoApiClient,
   assertApiResponse,
+  type OpenChoreoComponents,
 } from '@openchoreo/openchoreo-client-node';
 import {
   CHOREO_LABELS,
@@ -21,6 +22,29 @@ import {
   toComponentEndpointSummary,
   type ComponentRef,
 } from './componentEndpoints';
+
+type Endpoint = OpenChoreoComponents['schemas']['Endpoint'];
+type EndpointBackendRef = NonNullable<Endpoint['spec']>['backendRefs'][number];
+
+/** Identifies an Endpoint by namespace and name. */
+export interface EndpointRef {
+  namespaceName: string;
+  endpointName: string;
+}
+
+/** The most backends an Endpoint takes, as the Endpoint CRD allows. */
+const MAX_BACKENDS = 16;
+
+function requireBackend(
+  refs: EndpointBackendRef[],
+  request: EndpointRef & { backendName: string },
+) {
+  if (!refs.some(ref => ref.name === request.backendName)) {
+    throw new InputError(
+      `Endpoint ${request.endpointName} has no backend ${request.backendName}`,
+    );
+  }
+}
 
 export type EndpointReleaseSchemaSection = 'parameters' | 'environmentConfigs';
 
@@ -366,15 +390,137 @@ export class EndpointInfoService {
    * no longer manage it.
    */
   async addEndpointBackend(
-    request: {
-      namespaceName: string;
-      endpointName: string;
+    request: EndpointRef & {
       component: string;
       workloadEndpoint: string;
       weight?: number;
     },
     token?: string,
   ): Promise<{ name: string; backendName: string }> {
+    let backendName = '';
+    await this.updateEndpointBackends(
+      request,
+      token,
+      'add endpoint backend',
+      (refs, endpoint) => {
+        if (refs.length >= MAX_BACKENDS) {
+          throw new InputError(
+            `Endpoint ${request.endpointName} already has the maximum of ${MAX_BACKENDS} backends`,
+          );
+        }
+        if (
+          refs.some(
+            ref =>
+              ref.component?.name === request.component &&
+              ref.component?.endpoint === request.workloadEndpoint,
+          )
+        ) {
+          throw new InputError(
+            `Endpoint ${request.endpointName} already routes to ${request.component}/${request.workloadEndpoint}`,
+          );
+        }
+        const base = toDnsLabel(
+          `${request.component}-${request.workloadEndpoint}`,
+        ).slice(0, 60);
+        const taken = new Set(refs.map(ref => ref.name));
+        backendName = base;
+        for (let i = 2; taken.has(backendName); i++) {
+          backendName = `${base}-${i}`;
+        }
+        const {
+          [CHOREO_LABELS.ENDPOINT_SOURCE_COMPONENT]: _component,
+          [CHOREO_LABELS.ENDPOINT_SOURCE_ENDPOINT]: _endpoint,
+          ...labels
+        } = endpoint.metadata.labels ?? {};
+        return {
+          labels,
+          backendRefs: [
+            ...refs,
+            {
+              name: backendName,
+              kind: 'Component',
+              component: {
+                name: request.component,
+                endpoint: request.workloadEndpoint,
+              },
+              ...(request.weight !== undefined && { weight: request.weight }),
+            },
+          ],
+        };
+      },
+    );
+    return { name: request.endpointName, backendName };
+  }
+
+  /**
+   * Sets the weight of one of an Endpoint's backends. Ownership is unchanged:
+   * the Endpoint still routes to the same backends.
+   */
+  async updateEndpointBackendWeight(
+    request: EndpointRef & { backendName: string; weight: number },
+    token?: string,
+  ): Promise<{ success: true }> {
+    await this.updateEndpointBackends(
+      request,
+      token,
+      'update endpoint backend weight',
+      refs => {
+        requireBackend(refs, request);
+        return {
+          backendRefs: refs.map(ref =>
+            ref.name === request.backendName
+              ? { ...ref, weight: request.weight }
+              : ref,
+          ),
+        };
+      },
+    );
+    return { success: true };
+  }
+
+  /**
+   * Removes one of an Endpoint's backends. An Endpoint needs at least one,
+   * so the last cannot be removed; delete the Endpoint instead. Ownership
+   * follows the remaining backends, as the Endpoint controller decides it:
+   * an Endpoint that already moved to its project stays there.
+   */
+  async removeEndpointBackend(
+    request: EndpointRef & { backendName: string },
+    token?: string,
+  ): Promise<{ success: true }> {
+    await this.updateEndpointBackends(
+      request,
+      token,
+      'remove endpoint backend',
+      refs => {
+        requireBackend(refs, request);
+        if (refs.length === 1) {
+          throw new InputError(
+            `Endpoint ${request.endpointName} needs at least one backend; delete the Endpoint instead`,
+          );
+        }
+        return {
+          backendRefs: refs.filter(ref => ref.name !== request.backendName),
+        };
+      },
+    );
+    return { success: true };
+  }
+
+  /**
+   * Reads an Endpoint, lets `change` compute its new backends (and labels,
+   * when given), and writes it back. The API applies the update to the
+   * Endpoint as it is then, so it detects no concurrent edits.
+   */
+  private async updateEndpointBackends(
+    request: EndpointRef,
+    token: string | undefined,
+    action: string,
+    change: (
+      refs: EndpointBackendRef[],
+      endpoint: Endpoint,
+    ) => { backendRefs: unknown[]; labels?: Record<string, string> },
+  ): Promise<void> {
     const client = this.client(token);
     const { data, error, response } = await client.GET(
       '/api/v1/namespaces/{namespaceName}/endpoints/{endpointName}',
@@ -392,50 +538,16 @@ export class EndpointInfoService {
     if (!endpoint.spec) {
       throw new InputError(`Endpoint ${request.endpointName} has no spec`);
     }
-    const refs = endpoint.spec.backendRefs ?? [];
-    if (
-      refs.some(
-        ref =>
-          ref.component?.name === request.component &&
-          ref.component?.endpoint === request.workloadEndpoint,
-      )
-    ) {
-      throw new InputError(
-        `Endpoint ${request.endpointName} already routes to ${request.component}/${request.workloadEndpoint}`,
-      );
-    }
-
-    const base = toDnsLabel(
-      `${request.component}-${request.workloadEndpoint}`,
-    ).slice(0, 60);
-    const taken = new Set(refs.map(ref => ref.name));
-    let backendName = base;
-    for (let i = 2; taken.has(backendName); i++) {
-      backendName = `${base}-${i}`;
-    }
-
-    const {
-      [CHOREO_LABELS.ENDPOINT_SOURCE_COMPONENT]: _component,
-      [CHOREO_LABELS.ENDPOINT_SOURCE_ENDPOINT]: _endpoint,
-      ...labels
-    } = endpoint.metadata.labels ?? {};
+    const { backendRefs, labels } = change(
+      endpoint.spec.backendRefs ?? [],
+      endpoint,
+    );
     const body = {
-      metadata: { ...endpoint.metadata, labels },
-      spec: {
-        ...endpoint.spec,
-        backendRefs: [
-          ...refs,
-          {
-            name: backendName,
-            kind: 'Component',
-            component: {
-              name: request.component,
-              endpoint: request.workloadEndpoint,
-            },
-            ...(request.weight !== undefined && { weight: request.weight }),
-          },
-        ],
+      metadata: {
+        ...endpoint.metadata,
+        ...(labels && { labels }),
       },
+      spec: { ...endpoint.spec, backendRefs },
     };
     const updated = await client.PUT(
       '/api/v1/namespaces/{namespaceName}/endpoints/{endpointName}',
@@ -449,8 +561,7 @@ export class EndpointInfoService {
         body: body as any,
       },
     );
-    assertApiResponse(updated, 'add endpoint backend');
-    return { name: request.endpointName, backendName };
+    assertApiResponse(updated, action);
   }
 
   private async getManagedEndpoint(
