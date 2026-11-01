@@ -910,14 +910,21 @@ export interface OpenChoreoClientApi {
 
   /**
    * Fetch the Endpoints a component manages for its own workload endpoints,
-   * with the allowedEndpoints of its ComponentType.
+   * on its main line or on the given release line, with the allowedEndpoints
+   * of its ComponentType.
    */
-  fetchComponentEndpoints(entity: Entity): Promise<{
+  fetchComponentEndpoints(
+    entity: Entity,
+    releaseLine?: string,
+  ): Promise<{
     endpoints: ComponentEndpointSummary[];
     allowedEndpoints: AllowedEndpointTypeEntry[];
   }>;
 
-  /** Create an Endpoint for one of a component's workload endpoints. */
+  /**
+   * Create an Endpoint for one of a component's workload endpoints, on its
+   * main line or on the given release line.
+   */
   createComponentEndpoint(
     entity: Entity,
     endpoint: {
@@ -928,11 +935,13 @@ export interface OpenChoreoClientApi {
       parameters?: Record<string, unknown>;
       autoDeploy: boolean;
     },
+    releaseLine?: string,
   ): Promise<{ name: string }>;
 
   /**
    * Update the visibility and parameters of one of a component's Endpoints,
-   * and the workload endpoint it routes to when that was renamed.
+   * and the workload endpoint it routes to when that was renamed. The
+   * Endpoint must belong to the given line (main when omitted).
    */
   updateComponentEndpoint(
     entity: Entity,
@@ -942,10 +951,18 @@ export interface OpenChoreoClientApi {
       parameters?: Record<string, unknown>;
       workloadEndpoint?: string;
     },
+    releaseLine?: string,
   ): Promise<ComponentEndpointSummary>;
 
-  /** Delete one of a component's Endpoints. */
-  deleteComponentEndpoint(entity: Entity, endpointName: string): Promise<void>;
+  /**
+   * Delete one of a component's Endpoints. The Endpoint must belong to the
+   * given line (main when omitted).
+   */
+  deleteComponentEndpoint(
+    entity: Entity,
+    endpointName: string,
+    releaseLine?: string,
+  ): Promise<void>;
 
   /**
    * Add a backend to an Endpoint entity's Endpoint. A component-managed

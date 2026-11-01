@@ -266,6 +266,7 @@ export const WorkloadConfigPage = ({
   ).split('/')[0];
   const componentEndpoints = useComponentEndpoints(entity, {
     skip: workloadType === 'cronjob' || workloadType === 'job',
+    releaseLine,
   });
   const workloadEndpoints = workloadResource?.spec?.endpoints;
   const {
