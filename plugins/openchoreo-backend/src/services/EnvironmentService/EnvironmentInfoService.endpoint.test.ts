@@ -326,6 +326,37 @@ describe('EnvironmentInfoService endpoint bindings', () => {
       expect(staging.bindingName).toBeUndefined();
     });
 
+    it('reports the last deploy from lastSpecUpdateTime over Ready', async () => {
+      routeGets({
+        ...baseRoutes,
+        [BINDINGS]: {
+          items: [
+            binding('orders-api-dev', 'dev', {
+              status: {
+                // Redeploys keep Ready=True, so its transition time is stale.
+                lastSpecUpdateTime: '2026-10-21T08:30:00Z',
+                conditions: [
+                  {
+                    type: 'Ready',
+                    status: 'True',
+                    reason: 'Ready',
+                    lastTransitionTime: '2026-10-19T10:00:00Z',
+                  },
+                ],
+              },
+            }),
+          ],
+        },
+      });
+
+      const [dev] = await createService().fetchEndpointEnvironmentInfo(
+        target,
+        'token',
+      );
+
+      expect(dev.lastDeployed).toBe('2026-10-21T08:30:00Z');
+    });
+
     it('fails when the project has no deployment pipeline', async () => {
       routeGets({
         ...baseRoutes,

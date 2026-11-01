@@ -6404,6 +6404,11 @@ export interface components {
     };
     /** @description Observed state of an EndpointReleaseBinding. */
     EndpointReleaseBindingStatus: {
+      /**
+       * Format: date-time
+       * @description When the controller first observed the binding's current spec, such as a new endpointRelease being deployed.
+       */
+      lastSpecUpdateTime?: string;
       /** @description Latest available observations of the binding's state. Includes BackendsResolved, Synced, ResourcesReady, URLsResolved, Ready (aggregate), and Finalizing. */
       conditions?: components['schemas']['Condition'][];
       /** @description Resolution of each backendRef in this binding's environment. */

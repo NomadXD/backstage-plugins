@@ -282,8 +282,21 @@ function EntityChrome({ routes }: OpenChoreoCatalogEntityPageContentProps) {
  */
 function ChromeGate(props: OpenChoreoCatalogEntityPageContentProps) {
   const { entity, loading, error } = useAsyncEntity();
+  const { kind, namespace, name } = useRouteRefParams(entityRouteRef);
 
-  if (loading) return <Progress />;
+  // A refresh of the entity on screen keeps the page mounted, so tabs keep
+  // their state (selection, open panes); only a different entity, or the
+  // first load, waits behind the spinner.
+  const showsUrlEntity =
+    entity !== undefined &&
+    entity.kind.toLocaleLowerCase('en-US') ===
+      kind.toLocaleLowerCase('en-US') &&
+    (entity.metadata.namespace ?? 'default').toLocaleLowerCase('en-US') ===
+      namespace.toLocaleLowerCase('en-US') &&
+    entity.metadata.name.toLocaleLowerCase('en-US') ===
+      name.toLocaleLowerCase('en-US');
+
+  if (loading && !showsUrlEntity) return <Progress />;
   if (error) {
     return (
       <Box py={4}>

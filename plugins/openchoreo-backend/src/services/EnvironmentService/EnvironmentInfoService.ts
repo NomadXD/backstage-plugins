@@ -2560,16 +2560,19 @@ export class EnvironmentInfoService implements EnvironmentService {
       result.endpointRelease = binding.spec?.endpointRelease;
       result.endpointTypeEnvironmentConfigs = binding.spec
         ?.endpointTypeEnvironmentConfigs as Record<string, unknown> | undefined;
-      // The Ready condition's transition time tracks re-renders, so it
-      // moves on every promote; fall back to creation for bindings the
-      // controller has not reconciled yet (same as Resource bindings).
+      // The controller stamps lastSpecUpdateTime on every deploy. Ready's
+      // transition time does not move while the binding stays Ready, so it
+      // only stands in for bindings last reconciled by a controller that
+      // predates the stamp; creation covers ones not reconciled at all.
       const readyCond = (
         binding.status?.conditions as
           | Array<{ type?: string; lastTransitionTime?: string }>
           | undefined
       )?.find(c => c.type === 'Ready');
       result.lastDeployed =
-        readyCond?.lastTransitionTime ?? binding.metadata?.creationTimestamp;
+        binding.status?.lastSpecUpdateTime ??
+        readyCond?.lastTransitionTime ??
+        binding.metadata?.creationTimestamp;
       const derived = deriveBindingStatusDetailed(binding as any);
       if (derived) {
         result.status = derived.status;
