@@ -14,6 +14,12 @@ jest.mock(
       options: namespace
         ? [
             { component: 'orders', endpoint: 'api', visibility: [] },
+            {
+              component: 'orders',
+              releaseLine: 'next',
+              endpoint: 'api',
+              visibility: [],
+            },
             { component: 'payments', endpoint: 'http', visibility: [] },
           ]
         : [],
@@ -73,15 +79,39 @@ describe('AddEndpointBackendDialog', () => {
       screen.getByRole('button', { name: /Workload endpoint/ }),
     );
     const options = await screen.findAllByRole('option');
-    // The backend the Endpoint already routes to is not offered again.
-    expect(options.map(o => o.textContent)).toEqual(['payments / http']);
-    fireEvent.click(options[0]);
+    // The backend the Endpoint already routes to is not offered again, but
+    // the same workload endpoint on a release line is.
+    expect(options.map(o => o.textContent)).toEqual([
+      'orders @ next / api',
+      'payments / http',
+    ]);
+    fireEvent.click(options[1]);
     fireEvent.click(screen.getByRole('button', { name: 'Add backend' }));
 
     await waitFor(() => expect(onAdded).toHaveBeenCalled());
     expect(client.addEndpointBackend).toHaveBeenCalledWith(entity, {
       component: 'payments',
       workloadEndpoint: 'http',
+      weight: 1,
+    });
+  });
+
+  it("adds a component's release line as a backend, for a canary", async () => {
+    const { client, onAdded } = renderDialog();
+
+    fireEvent.mouseDown(
+      screen.getByRole('button', { name: /Workload endpoint/ }),
+    );
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'orders @ next / api' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add backend' }));
+
+    await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    expect(client.addEndpointBackend).toHaveBeenCalledWith(entity, {
+      component: 'orders',
+      workloadEndpoint: 'api',
+      releaseLine: 'next',
       weight: 1,
     });
   });

@@ -10,6 +10,8 @@ const ROUTABLE_VISIBILITIES = ['internal', 'external'];
 /** A component workload endpoint an Endpoint can route to. */
 export interface WorkloadEndpointOption {
   component: string;
+  /** The component's release line; absent for its main line. */
+  releaseLine?: string;
   endpoint: string;
   visibility: string[];
   /** Schema format, e.g. `openapi` or `proto`, when the endpoint has one. */
@@ -69,11 +71,14 @@ export function isRoutable(option: WorkloadEndpointOption): boolean {
 /**
  * Lists the workload endpoints of a project's components: the components come
  * from the catalog, their endpoints from each component's Workload. A
- * component without a Workload contributes no endpoints.
+ * component without a Workload contributes no endpoints. With
+ * includeReleaseLines, each release line's Workload contributes its endpoints
+ * too, marked with the line.
  */
 export function useProjectWorkloadEndpoints(
   namespace: string | undefined,
   project: string | undefined,
+  { includeReleaseLines = false }: { includeReleaseLines?: boolean } = {},
 ): {
   options: WorkloadEndpointOption[];
   loading: boolean;
@@ -104,22 +109,35 @@ export function useProjectWorkloadEndpoints(
       })
       .then(({ items }) =>
         Promise.all(
-          items.map(component =>
-            client
-              .fetchWorkloadInfo(component)
-              .then(workload =>
-                workloadEndpointOptions(
-                  component.metadata.annotations?.[
-                    CHOREO_ANNOTATIONS.COMPONENT
-                  ] ?? component.metadata.name,
-                  workload?.spec?.endpoints as
-                    | Record<string, WorkloadEndpointSpec>
-                    | undefined,
-                ),
-              )
-              // No Workload yet (or not readable): nothing to route to.
-              .catch(() => [] as WorkloadEndpointOption[]),
-          ),
+          items.map(async component => {
+            const name =
+              component.metadata.annotations?.[CHOREO_ANNOTATIONS.COMPONENT] ??
+              component.metadata.name;
+            const lineOptions = (releaseLine?: string) =>
+              client
+                .fetchWorkloadInfo(component, releaseLine)
+                .then(workload =>
+                  workloadEndpointOptions(
+                    name,
+                    workload?.spec?.endpoints as
+                      | Record<string, WorkloadEndpointSpec>
+                      | undefined,
+                  ).map(o => (releaseLine ? { ...o, releaseLine } : o)),
+                )
+                // No Workload yet (or not readable): nothing to route to.
+                .catch(() => [] as WorkloadEndpointOption[]);
+            const lines = includeReleaseLines
+              ? await client
+                  .fetchReleaseLines(component)
+                  .then(found => found.filter(l => !l.isMain).map(l => l.name))
+                  .catch(() => [] as string[])
+              : [];
+            const perLine = await Promise.all([
+              lineOptions(),
+              ...lines.map(line => lineOptions(line)),
+            ]);
+            return perLine.flat();
+          }),
         ),
       )
       .then(perComponent => {
@@ -127,8 +145,8 @@ export function useProjectWorkloadEndpoints(
         const options = perComponent
           .flat()
           .sort((a, b) =>
-            `${a.component}/${a.endpoint}`.localeCompare(
-              `${b.component}/${b.endpoint}`,
+            `${a.component}@${a.releaseLine ?? ''}/${a.endpoint}`.localeCompare(
+              `${b.component}@${b.releaseLine ?? ''}/${b.endpoint}`,
             ),
           );
         setState({ options, loading: false });
@@ -144,7 +162,7 @@ export function useProjectWorkloadEndpoints(
     return () => {
       cancelled = true;
     };
-  }, [catalogApi, client, namespace, project]);
+  }, [catalogApi, client, namespace, project, includeReleaseLines]);
 
   return state;
 }

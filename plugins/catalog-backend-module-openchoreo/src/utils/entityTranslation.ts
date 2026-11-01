@@ -2683,6 +2683,9 @@ export function translateNewEndpointToEntities(
         ...(ref.component && {
           component: ref.component.name,
           endpoint: ref.component.endpoint,
+          ...(ref.component.releaseLine && {
+            releaseLine: ref.component.releaseLine,
+          }),
         }),
         ...(ref.weight !== undefined && { weight: ref.weight }),
       })),

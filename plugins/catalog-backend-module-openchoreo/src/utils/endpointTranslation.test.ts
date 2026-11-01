@@ -151,6 +151,53 @@ describe('translateNewEndpointToEntities', () => {
     expect(endpoint.spec?.managedByComponent).toBeUndefined();
   });
 
+  it("keeps a backend's release line", () => {
+    const [endpoint] = translateNewEndpointToEntities(
+      {
+        metadata: { name: 'orders-canary', namespace: 'acme' },
+        spec: {
+          owner: { projectName: 'store' },
+          type: { name: 'http-route' },
+          visibility: ['external'],
+          backendRefs: [
+            { name: 'main', component: { name: 'orders', endpoint: 'http' } },
+            {
+              name: 'next',
+              component: {
+                name: 'orders',
+                endpoint: 'http',
+                releaseLine: 'next',
+              },
+              weight: 10,
+            },
+          ],
+        },
+      } as any,
+      'acme',
+      {
+        providerName: 'openchoreo-provider',
+        defaultOwner: 'group:default/openchoreo',
+      } as any,
+    );
+
+    expect(endpoint.spec?.backends).toEqual([
+      {
+        name: 'main',
+        kind: 'Component',
+        component: 'orders',
+        endpoint: 'http',
+      },
+      {
+        name: 'next',
+        kind: 'Component',
+        component: 'orders',
+        endpoint: 'http',
+        releaseLine: 'next',
+        weight: 10,
+      },
+    ]);
+  });
+
   const translateWith = (
     labels: Record<string, string>,
     components: string[],

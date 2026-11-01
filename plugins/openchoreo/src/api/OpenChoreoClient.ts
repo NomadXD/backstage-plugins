@@ -845,7 +845,12 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
 
   async addEndpointBackend(
     entity: Entity,
-    backend: { component: string; workloadEndpoint: string; weight?: number },
+    backend: {
+      component: string;
+      workloadEndpoint: string;
+      releaseLine?: string;
+      weight?: number;
+    },
   ): Promise<{ name: string; backendName: string }> {
     return this.apiFetch(API_ENDPOINTS.ENDPOINT_BACKENDS, {
       method: 'POST',
