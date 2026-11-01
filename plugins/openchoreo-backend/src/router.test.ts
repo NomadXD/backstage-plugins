@@ -98,6 +98,7 @@ function createMockServices() {
       fetchEndpointReleaseSchema: jest.fn(),
       fetchEndpointTypeSchema: jest.fn(),
       fetchClusterEndpointTypeSchema: jest.fn(),
+      fetchReleaseLineEndpointDrafts: jest.fn(),
     },
     projectReleaseInfoService: {
       fetchProjectRelease: jest.fn(),
@@ -1304,6 +1305,105 @@ describe('createRouter', () => {
       expect(
         services.environmentInfoService.removeComponentEndpointBindings,
       ).toHaveBeenCalledWith(body, 'mock-user-token');
+    });
+
+    it("PUT /update-release-binding moves a release line's own Endpoints", async () => {
+      services.environmentInfoService.updateReleaseBinding.mockResolvedValue(
+        {},
+      );
+      services.environmentInfoService.syncComponentEndpointBindings.mockResolvedValue(
+        { deployed: [], skipped: [] },
+      );
+      const component = {
+        componentName: 'orders',
+        projectName: 'store',
+        namespaceName: 'acme',
+      };
+
+      await request(app)
+        .put('/update-release-binding')
+        .send({
+          ...component,
+          releaseLine: 'next',
+          environment: 'dev',
+          releaseName: 'orders-next-abc',
+        });
+
+      expect(
+        services.environmentInfoService.syncComponentEndpointBindings,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ ...component, releaseLine: 'next' }),
+        'mock-user-token',
+      );
+    });
+
+    it("DELETE /delete-release-binding removes only the release line's Endpoints", async () => {
+      services.environmentInfoService.removeComponentEndpointBindings.mockResolvedValue(
+        { removed: [], skipped: [] },
+      );
+      services.environmentInfoService.deleteReleaseBinding.mockResolvedValue(
+        [],
+      );
+      const body = {
+        componentName: 'orders',
+        projectName: 'store',
+        namespaceName: 'acme',
+        environment: 'dev',
+        releaseLine: 'next',
+      };
+
+      await request(app).delete('/delete-release-binding').send(body);
+
+      expect(
+        services.environmentInfoService.removeComponentEndpointBindings,
+      ).toHaveBeenCalledWith(body, 'mock-user-token');
+      expect(
+        services.environmentInfoService.deleteReleaseBinding,
+      ).toHaveBeenCalledWith(body, 'mock-user-token');
+    });
+
+    it("GET /release-line-endpoint-drafts drafts a release line's Endpoints", async () => {
+      services.endpointInfoService.fetchReleaseLineEndpointDrafts.mockResolvedValue(
+        [{ name: 'orders-next-api' }],
+      );
+
+      const response = await request(app)
+        .get('/release-line-endpoint-drafts')
+        .query({
+          componentName: 'orders',
+          projectName: 'store',
+          namespaceName: 'acme',
+          releaseLine: 'next',
+          autoDeploy: 'true',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([{ name: 'orders-next-api' }]);
+      expect(
+        services.endpointInfoService.fetchReleaseLineEndpointDrafts,
+      ).toHaveBeenCalledWith(
+        {
+          componentName: 'orders',
+          projectName: 'store',
+          namespaceName: 'acme',
+          releaseLine: 'next',
+          autoDeploy: true,
+        },
+        'mock-user-token',
+      );
+    });
+
+    it('GET /release-line-endpoint-drafts refuses the main line', async () => {
+      const response = await request(app)
+        .get('/release-line-endpoint-drafts')
+        .query({
+          componentName: 'orders',
+          projectName: 'store',
+          namespaceName: 'acme',
+          releaseLine: 'main',
+        });
+
+      expect(response.status).toBe(400);
     });
 
     it('DELETE /delete-endpoint-release-binding forwards to the service', async () => {

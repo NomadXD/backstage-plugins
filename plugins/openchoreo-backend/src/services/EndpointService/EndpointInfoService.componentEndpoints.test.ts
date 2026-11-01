@@ -33,8 +33,10 @@ function endpoint(
     workloadEndpoint?: string;
     projectName?: string;
     parameters?: Record<string, unknown>;
+    releaseLine?: string;
   } = {},
 ) {
+  const line = overrides.releaseLine;
   return {
     metadata: {
       name,
@@ -42,7 +44,8 @@ function endpoint(
       labels: {
         'openchoreo.dev/source-component': 'orders',
         'openchoreo.dev/source-endpoint': overrides.workloadEndpoint ?? 'api',
-      },
+        ...(line ? { 'openchoreo.dev/source-release-line': line } : {}),
+      } as Record<string, string>,
     },
     spec: {
       owner: { projectName: overrides.projectName ?? 'store' },
@@ -50,13 +53,14 @@ function endpoint(
       visibility: ['external'],
       backendRefs: [
         {
-          name: 'orders',
+          name: line ?? 'orders',
           kind: 'Component',
           weight: 1,
           component: {
             name: overrides.component ?? 'orders',
             endpoint: overrides.workloadEndpoint ?? 'api',
-          },
+            ...(line ? { releaseLine: line } : {}),
+          } as { name: string; endpoint: string; releaseLine?: string },
         },
       ],
       ...(overrides.parameters && { parameters: overrides.parameters }),
@@ -111,6 +115,7 @@ describe('EndpointInfoService component Endpoints', () => {
       expect(result.endpoints).toEqual([
         {
           name: 'orders-api',
+          releaseLine: '',
           workloadEndpoint: 'api',
           typeKind: 'ClusterEndpointType',
           typeName: 'http-route',
@@ -154,6 +159,89 @@ describe('EndpointInfoService component Endpoints', () => {
 
       expect(result.allowedEndpoints).toEqual([]);
       expect(result.endpoints.map(e => e.name)).toEqual(['orders-api']);
+    });
+
+    it("keeps the main line's and a release line's Endpoints apart", async () => {
+      mockGET.mockImplementation((path: string) =>
+        Promise.resolve(
+          path.endsWith('/endpoints')
+            ? createOkResponse({
+                items: [
+                  endpoint('orders-api'),
+                  endpoint('orders-next-api', { releaseLine: 'next' }),
+                ],
+              })
+            : createOkResponse({ spec: {} }),
+        ),
+      );
+      const fetch = (releaseLine?: string) =>
+        service.fetchComponentEndpoints({
+          ...ref,
+          releaseLine,
+          componentTypeKind: 'ClusterComponentType',
+          componentTypeName: 'service',
+        });
+
+      expect((await fetch()).endpoints.map(e => e.name)).toEqual([
+        'orders-api',
+      ]);
+      expect((await fetch('main')).endpoints.map(e => e.name)).toEqual([
+        'orders-api',
+      ]);
+      const line = await fetch('next');
+      expect(line.endpoints.map(e => [e.name, e.releaseLine])).toEqual([
+        ['orders-next-api', 'next'],
+      ]);
+    });
+  });
+
+  describe('fetchReleaseLineEndpointDrafts', () => {
+    const lineRef = { ...ref, releaseLine: 'next', autoDeploy: true };
+
+    it("drafts the line's copies of the main line's Endpoints", async () => {
+      mockGET.mockResolvedValue(
+        createOkResponse({
+          items: [endpoint('orders-api', { parameters: { pathPrefix: '/x' } })],
+        }),
+      );
+
+      expect(await service.fetchReleaseLineEndpointDrafts(lineRef)).toEqual([
+        {
+          name: 'orders-next-api',
+          componentName: 'orders',
+          projectName: 'store',
+          releaseLine: 'next',
+          workloadEndpoint: 'api',
+          typeKind: 'ClusterEndpointType',
+          typeName: 'http-route',
+          visibility: ['external'],
+          parameters: { pathPrefix: '/x' },
+          autoDeploy: true,
+        },
+      ]);
+      expect(mockPOST).not.toHaveBeenCalled();
+    });
+
+    it('leaves out Endpoints the line already has', async () => {
+      mockGET.mockResolvedValue(
+        createOkResponse({
+          items: [
+            endpoint('orders-api'),
+            endpoint('orders-next-api', { releaseLine: 'next' }),
+          ],
+        }),
+      );
+
+      expect(await service.fetchReleaseLineEndpointDrafts(lineRef)).toEqual([]);
+    });
+
+    it('refuses the main line', async () => {
+      await expect(
+        service.fetchReleaseLineEndpointDrafts({
+          ...lineRef,
+          releaseLine: 'main',
+        }),
+      ).rejects.toThrow(/not main/);
     });
   });
 
@@ -204,6 +292,27 @@ describe('EndpointInfoService component Endpoints', () => {
       await expect(service.createComponentEndpoint(request)).resolves.toEqual({
         name: 'orders-api-managed-http',
       });
+    });
+
+    it("names, labels and routes a release line's Endpoint for the line", async () => {
+      mockPOST.mockResolvedValue(createOkResponse({}));
+
+      await expect(
+        service.createComponentEndpoint({ ...request, releaseLine: 'next' }),
+      ).resolves.toEqual({ name: 'orders-next-api' });
+      const body = mockPOST.mock.calls[0][1].body;
+      expect(body.metadata.labels).toEqual({
+        'openchoreo.dev/source-component': 'orders',
+        'openchoreo.dev/source-endpoint': 'api',
+        'openchoreo.dev/source-release-line': 'next',
+      });
+      expect(body.spec.backendRefs).toEqual([
+        {
+          name: 'next',
+          kind: 'Component',
+          component: { name: 'orders', endpoint: 'api', releaseLine: 'next' },
+        },
+      ]);
     });
 
     it('fails when both names are taken', async () => {
@@ -284,6 +393,58 @@ describe('EndpointInfoService component Endpoints', () => {
       expect(mockPUT).not.toHaveBeenCalled();
     });
 
+    it("refuses a release line's Endpoint from the main line's page", async () => {
+      mockGET.mockResolvedValue(
+        createOkResponse(endpoint('orders-next-api', { releaseLine: 'next' })),
+      );
+
+      await expect(
+        service.updateComponentEndpoint({
+          ...ref,
+          endpointName: 'orders-next-api',
+          visibility: ['external'],
+        }),
+      ).rejects.toThrow(
+        /belongs to release line next of component orders, not component orders/,
+      );
+      expect(mockPUT).not.toHaveBeenCalled();
+    });
+
+    it("refuses the main line's Endpoint from a release line's page", async () => {
+      mockGET.mockResolvedValue(createOkResponse(endpoint('orders-api')));
+
+      await expect(
+        service.updateComponentEndpoint({
+          ...ref,
+          releaseLine: 'next',
+          endpointName: 'orders-api',
+          visibility: ['external'],
+          parameters: { pathPrefix: '/orders-next' },
+        }),
+      ).rejects.toThrow(
+        /belongs to component orders, not release line next of component orders/,
+      );
+      expect(mockPUT).not.toHaveBeenCalled();
+    });
+
+    it("updates a release line's Endpoint from its page", async () => {
+      mockGET.mockResolvedValue(
+        createOkResponse(endpoint('orders-next-api', { releaseLine: 'next' })),
+      );
+      mockPUT.mockImplementation((_path: string, { body }: any) =>
+        Promise.resolve(createOkResponse(body)),
+      );
+
+      const saved = await service.updateComponentEndpoint({
+        ...ref,
+        releaseLine: 'next',
+        endpointName: 'orders-next-api',
+        visibility: ['internal'],
+      });
+      expect(saved.visibility).toEqual(['internal']);
+      expect(saved.releaseLine).toBe('next');
+    });
+
     it('refuses an empty visibility', async () => {
       await expect(
         service.updateComponentEndpoint({
@@ -314,6 +475,19 @@ describe('EndpointInfoService component Endpoints', () => {
           },
         },
       );
+    });
+
+    it("refuses another line's Endpoint", async () => {
+      mockGET.mockResolvedValue(createOkResponse(endpoint('orders-api')));
+
+      await expect(
+        service.deleteComponentEndpoint({
+          ...ref,
+          releaseLine: 'next',
+          endpointName: 'orders-api',
+        }),
+      ).rejects.toThrow(/belongs to component orders/);
+      expect(mockDELETE).not.toHaveBeenCalled();
     });
 
     it('refuses an Endpoint of another project', async () => {
@@ -377,6 +551,53 @@ describe('EndpointInfoService component Endpoints', () => {
         }),
       ).rejects.toThrow(/already routes to orders\/api/);
       expect(mockPUT).not.toHaveBeenCalled();
+    });
+
+    it("adds the component's release line as a backend, for a canary", async () => {
+      mockGET.mockResolvedValue(createOkResponse(endpoint('orders-api')));
+      mockPUT.mockResolvedValue(createOkResponse({}));
+
+      const result = await service.addEndpointBackend({
+        ...request,
+        component: 'orders',
+        workloadEndpoint: 'api',
+        releaseLine: 'next',
+      });
+
+      expect(result.backendName).toBe('orders-next-api');
+      const body = mockPUT.mock.calls[0][1].body;
+      expect(body.spec.backendRefs[1]).toEqual({
+        name: 'orders-next-api',
+        kind: 'Component',
+        weight: 2,
+        component: { name: 'orders', endpoint: 'api', releaseLine: 'next' },
+      });
+    });
+
+    it("drops a release line's label with the others", async () => {
+      mockGET.mockResolvedValue(
+        createOkResponse(endpoint('orders-next-api', { releaseLine: 'next' })),
+      );
+      mockPUT.mockResolvedValue(createOkResponse({}));
+
+      await service.addEndpointBackend(request);
+
+      expect(mockPUT.mock.calls[0][1].body.metadata.labels).toEqual({});
+    });
+
+    it('refuses a backend the Endpoint already routes to on that line', async () => {
+      mockGET.mockResolvedValue(
+        createOkResponse(endpoint('orders-next-api', { releaseLine: 'next' })),
+      );
+
+      await expect(
+        service.addEndpointBackend({
+          ...request,
+          component: 'orders',
+          workloadEndpoint: 'api',
+          releaseLine: 'next',
+        }),
+      ).rejects.toThrow(/already routes to orders@next\/api/);
     });
   });
 

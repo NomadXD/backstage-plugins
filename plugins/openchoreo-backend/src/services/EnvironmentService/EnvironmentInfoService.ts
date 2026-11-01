@@ -2745,6 +2745,7 @@ export class EnvironmentInfoService implements EnvironmentService {
       componentName: string;
       projectName: string;
       namespaceName: string;
+      releaseLine?: string;
     },
     environments: Environment[],
   ): Promise<Environment[]> {
@@ -2801,6 +2802,7 @@ export class EnvironmentInfoService implements EnvironmentService {
       componentName: string;
       projectName: string;
       namespaceName: string;
+      releaseLine?: string;
       environment: string;
       sourceEnvironment?: string;
     },
@@ -2880,6 +2882,7 @@ export class EnvironmentInfoService implements EnvironmentService {
       componentName: string;
       projectName: string;
       namespaceName: string;
+      releaseLine?: string;
       environment: string;
     },
     token?: string,
