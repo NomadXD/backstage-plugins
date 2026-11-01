@@ -5,7 +5,7 @@ export interface EndpointOwnershipInput {
   labels?: Record<string, string>;
   backendRefs?: Array<{
     kind?: string;
-    component?: { name?: string };
+    component?: { name?: string; releaseLine?: string };
   }>;
 }
 
@@ -32,4 +32,23 @@ export function endpointManagingComponent(
       ref.component?.name === component,
   );
   return routesOnlyToComponent ? component : undefined;
+}
+
+/**
+ * Returns the release line of its managing component an Endpoint belongs to:
+ * the line it was created for, from its source-release-line label, or '' for
+ * the component's main line. Undefined when no component manages the Endpoint
+ * (see endpointManagingComponent).
+ *
+ * The label, like the source-component label, records whose Endpoint it is:
+ * a canary started from main's Endpoint by adding a backend on another line
+ * stays main's, and the reverse.
+ */
+export function endpointManagingReleaseLine(
+  endpoint: EndpointOwnershipInput,
+): string | undefined {
+  if (endpointManagingComponent(endpoint) === undefined) {
+    return undefined;
+  }
+  return endpoint.labels?.[CHOREO_LABELS.ENDPOINT_SOURCE_RELEASE_LINE] ?? '';
 }
