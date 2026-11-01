@@ -10,6 +10,7 @@ import type {
   EndpointReleaseBindingResponse,
   ResolvedEndpointBackend,
   AllowedEndpointTypeEntry,
+  ComponentEndpointInput,
   ComponentEndpointSummary,
   EndpointTypeKind,
 } from '@openchoreo/backstage-plugin-common';
@@ -920,6 +921,16 @@ export interface OpenChoreoClientApi {
     endpoints: ComponentEndpointSummary[];
     allowedEndpoints: AllowedEndpointTypeEntry[];
   }>;
+
+  /**
+   * Fetch drafts of a release line's Endpoints: copies of the component's
+   * main-line Endpoints for the line, less those the line already has.
+   * Nothing is created; the line's configure page creates the drafts kept.
+   */
+  fetchReleaseLineEndpointDrafts(
+    entity: Entity,
+    releaseLine: string,
+  ): Promise<ComponentEndpointInput[]>;
 
   /**
    * Create an Endpoint for one of a component's workload endpoints, on its

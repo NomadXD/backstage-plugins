@@ -6,6 +6,7 @@ import {
   parseEndpointTypeKey,
   toStoredReleaseLine,
   type AllowedEndpointTypeEntry,
+  type ComponentEndpointInput,
   type ComponentEndpointSummary,
   type EndpointExposureChoice,
   type EndpointExposures,
@@ -27,6 +28,12 @@ export interface ComponentEndpointsState {
   allowedEndpoints: AllowedEndpointTypeEntry[];
   /** The component's Endpoints as on the server. */
   originals: ComponentEndpointSummary[];
+  /**
+   * How many of the rows were prefilled from the main line's Endpoints: on a
+   * release line without Endpoints of its own, its rows start from the
+   * generator's drafts, which are created for the line on save. 0 otherwise.
+   */
+  draftedFromMain: number;
   /** The Endpoint type chosen per workload endpoint, by current name. */
   choices: EndpointExposures;
   renames: Record<string, string>;
@@ -90,6 +97,7 @@ export function useComponentEndpoints(
   const [allowedEndpoints, setAllowedEndpoints] =
     useState<AllowedEndpointTypeEntry[]>(EMPTY);
   const [originals, setOriginals] = useState<ComponentEndpointSummary[]>([]);
+  const [drafts, setDrafts] = useState<ComponentEndpointInput[]>([]);
   const [choices, setChoices] = useState<EndpointExposures>({});
   const [renames, setRenames] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<EndpointFormMode>('legacy');
@@ -102,12 +110,26 @@ export function useComponentEndpoints(
     }
     let cancelled = false;
     setLoading(true);
-    client
-      .fetchComponentEndpoints(entity, releaseLine)
-      .then(result => {
+    const line = toStoredReleaseLine(releaseLine);
+    const load = async () => {
+      const result = await client.fetchComponentEndpoints(entity, releaseLine);
+      // A release line without Endpoints of its own starts from the main
+      // line's, as drafts the user reviews and saves. Without drafts the page
+      // works as before, so a failure to fetch them is not an error.
+      const lineDrafts =
+        line && result.endpoints.length === 0
+          ? await client
+              .fetchReleaseLineEndpointDrafts(entity, line)
+              .catch(() => [])
+          : [];
+      return { result, lineDrafts };
+    };
+    load()
+      .then(({ result, lineDrafts }) => {
         if (cancelled) return;
         setAllowedEndpoints(result.allowedEndpoints ?? EMPTY);
         setOriginals(result.endpoints);
+        setDrafts(lineDrafts);
         const initial: EndpointExposures = {};
         for (const [name, original] of primaryOriginals(result.endpoints, {})) {
           initial[name] = {
@@ -116,6 +138,16 @@ export function useComponentEndpoints(
               name: original.typeName,
             }),
             parameters: original.parameters,
+          };
+        }
+        for (const draft of lineDrafts) {
+          if (initial[draft.workloadEndpoint]) continue;
+          initial[draft.workloadEndpoint] = {
+            type: endpointTypeKey({
+              kind: draft.typeKind,
+              name: draft.typeName,
+            }),
+            parameters: draft.parameters ?? {},
           };
         }
         setChoices(initial);
@@ -173,24 +205,37 @@ export function useComponentEndpoints(
   const prepare = useCallback(
     <T extends ExposableEndpoint>(endpoints: Record<string, T>) => {
       const primary = primaryOriginals(originals, {});
-      const opening = initialEndpointMode(endpoints, originals);
+      // A line's drafts open the Endpoints form, like Endpoints it had.
+      const drafted = new Map<string, ComponentEndpointInput>();
+      if (originals.length === 0) {
+        for (const draft of drafts) {
+          if (!drafted.has(draft.workloadEndpoint)) {
+            drafted.set(draft.workloadEndpoint, draft);
+          }
+        }
+      }
+      const opening =
+        drafted.size > 0
+          ? 'endpoints'
+          : initialEndpointMode(endpoints, originals);
       setMode(opening);
       setInitialMode(opening);
       const result: Record<string, T> = {};
       for (const [name, endpoint] of Object.entries(endpoints)) {
-        const original = primary.get(name);
-        if (!original) {
+        const visibilitySource =
+          primary.get(name)?.visibility ?? drafted.get(name)?.visibility;
+        if (!visibilitySource) {
           result[name] = endpoint;
           continue;
         }
         const visibility = [
-          ...new Set([...(endpoint.visibility ?? []), ...original.visibility]),
+          ...new Set([...(endpoint.visibility ?? []), ...visibilitySource]),
         ];
         result[name] = { ...endpoint, visibility };
       }
       return result;
     },
-    [originals],
+    [originals, drafts],
   );
 
   const apply = useCallback(
@@ -294,6 +339,7 @@ export function useComponentEndpoints(
       loadError,
       allowedEndpoints,
       originals,
+      draftedFromMain: originals.length === 0 ? drafts.length : 0,
       choices,
       renames,
       mode,
@@ -311,6 +357,7 @@ export function useComponentEndpoints(
       loadError,
       allowedEndpoints,
       originals,
+      drafts,
       choices,
       renames,
       mode,
