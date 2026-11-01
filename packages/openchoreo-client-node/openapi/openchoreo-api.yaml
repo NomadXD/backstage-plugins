@@ -10882,7 +10882,7 @@ components:
         releaseBinding:
           type: string
           description: Name of the line's ReleaseBinding in the environment
-          example: hello-next-development
+          example: hello-next-4833a175-development
         release:
           type: string
           description: Name of the ComponentRelease bound in the environment
@@ -12514,6 +12514,12 @@ components:
           description: Name of the endpoint in the component's Workload.spec.endpoints.
           minLength: 1
           example: http
+        releaseLine:
+          type: string
+          description: Release line of the component to route to. Omitted for the main line.
+          maxLength: 63
+          pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+          example: next
 
     EndpointStatus:
       type: object
@@ -14851,10 +14857,10 @@ components:
         body:
           type: string
           description: Email body template using CEL expressions
-          example: 'Alert: ${alert.name} triggered at ${alert.startsAt}.'
+          example: "Alert: ${alert.name} triggered at ${alert.startsAt}."
         contentType:
           type: string
-          description: Content type of the email body (text/plain or text/html)
+          description: Content type of the email body
           enum:
             - text/plain
             - text/html

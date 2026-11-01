@@ -5055,7 +5055,7 @@ export interface components {
       environment: string;
       /**
        * @description Name of the line's ReleaseBinding in the environment
-       * @example hello-next-development
+       * @example hello-next-4833a175-development
        */
       releaseBinding: string;
       /**
@@ -6125,6 +6125,11 @@ export interface components {
        * @example http
        */
       endpoint: string;
+      /**
+       * @description Release line of the component to route to. Omitted for the main line.
+       * @example next
+       */
+      releaseLine?: string;
     };
     /** @description Observed state of an Endpoint. */
     EndpointStatus: {
@@ -7753,7 +7758,7 @@ export interface components {
        */
       body: string;
       /**
-       * @description Content type of the email body (text/plain or text/html)
+       * @description Content type of the email body
        * @default text/plain
        * @enum {string}
        */
