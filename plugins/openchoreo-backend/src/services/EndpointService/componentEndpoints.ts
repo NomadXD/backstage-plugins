@@ -7,6 +7,8 @@ import {
 import {
   CHOREO_LABELS,
   endpointManagingComponent,
+  endpointManagingReleaseLine,
+  toStoredReleaseLine,
   type ComponentEndpointSummary,
 } from '@openchoreo/backstage-plugin-common';
 
@@ -17,11 +19,17 @@ export interface ComponentRef {
   componentName: string;
   projectName: string;
   namespaceName: string;
+  /**
+   * The component's release line whose Endpoints are meant. Omitted or '' for
+   * its main line.
+   */
+  releaseLine?: string;
 }
 
 /**
- * Lists the Endpoints created for a component's own workload endpoints:
- * labeled with it as source component and routing to nothing else. These
+ * Lists the Endpoints created for a component's own workload endpoints on one
+ * of its lines: labeled with it as source component, routing to nothing else,
+ * and created for that line (main when request.releaseLine is unset). These
  * are the Endpoints the Endpoint controller makes the component own, so they
  * move between environments with it. An Endpoint later edited to route to
  * another component belongs to the project and is deployed on its own.
@@ -51,17 +59,28 @@ export async function listComponentEndpoints(
   return items.filter(
     ep =>
       ep.spec?.owner?.projectName === request.projectName &&
-      isManagedBy(ep, request.componentName),
+      isManagedBy(ep, request.componentName, request.releaseLine),
   );
 }
 
-/** Whether the component manages this Endpoint (see endpointManagingComponent). */
-export function isManagedBy(endpoint: Endpoint, componentName: string) {
+/**
+ * Whether the component manages this Endpoint for the given line, main when
+ * releaseLine is unset (see endpointManagingComponent and
+ * endpointManagingReleaseLine).
+ */
+export function isManagedBy(
+  endpoint: Endpoint,
+  componentName: string,
+  releaseLine?: string,
+) {
+  const ownership = {
+    labels: endpoint.metadata.labels,
+    backendRefs: endpoint.spec?.backendRefs,
+  };
   return (
-    endpointManagingComponent({
-      labels: endpoint.metadata.labels,
-      backendRefs: endpoint.spec?.backendRefs,
-    }) === componentName
+    endpointManagingComponent(ownership) === componentName &&
+    endpointManagingReleaseLine(ownership) ===
+      (toStoredReleaseLine(releaseLine) ?? '')
   );
 }
 
@@ -78,6 +97,11 @@ export function toComponentEndpointSummary(
   const ready = endpoint.status?.conditions?.find(c => c.type === 'Ready');
   return {
     name: endpoint.metadata.name,
+    releaseLine:
+      endpointManagingReleaseLine({
+        labels: endpoint.metadata.labels,
+        backendRefs: spec?.backendRefs,
+      }) ?? '',
     workloadEndpoint:
       spec?.backendRefs?.find(ref => ref.component?.endpoint)?.component
         ?.endpoint ??

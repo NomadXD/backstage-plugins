@@ -250,19 +250,17 @@ export async function createRouter({
       projectName: projectName as string,
       namespaceName: namespaceName as string,
       environment: environment as string,
+      releaseLine: requestReleaseLine(req),
     };
 
-    // Take the component's own Endpoints out first so their routes go
-    // before the backend they point at.
+    // Take the line's own Endpoints out first so their routes go before the
+    // backend they point at.
     await environmentInfoService.removeComponentEndpointBindings(
       request,
       userToken,
     );
     res.json(
-      await environmentInfoService.deleteReleaseBinding(
-        { ...request, releaseLine: requestReleaseLine(req) },
-        userToken,
-      ),
+      await environmentInfoService.deleteReleaseBinding(request, userToken),
     );
   });
 
@@ -1636,9 +1634,10 @@ export async function createRouter({
     );
   });
 
-  // A component's own Endpoints, managed from its configure page.
+  // A component's own Endpoints, managed from its configure page: those of
+  // its main line, or of the release line named by releaseLine.
   const requireComponentRef = (source: Record<string, unknown>) => {
-    const { componentName, projectName, namespaceName } = source;
+    const { componentName, projectName, namespaceName, releaseLine } = source;
     if (!componentName || !projectName || !namespaceName) {
       throw new InputError(
         'componentName, projectName and namespaceName are required',
@@ -1648,8 +1647,29 @@ export async function createRouter({
       componentName: componentName as string,
       projectName: projectName as string,
       namespaceName: namespaceName as string,
+      releaseLine:
+        typeof releaseLine === 'string'
+          ? toStoredReleaseLine(releaseLine)
+          : undefined,
     };
   };
+
+  router.get('/release-line-endpoint-drafts', async (req, res) => {
+    const ref = requireComponentRef(req.query);
+    if (!ref.releaseLine) {
+      throw new InputError('releaseLine must name a release line');
+    }
+    res.json(
+      await endpointInfoService.fetchReleaseLineEndpointDrafts(
+        {
+          ...ref,
+          releaseLine: ref.releaseLine,
+          autoDeploy: req.query.autoDeploy === 'true',
+        },
+        getUserTokenFromRequest(req),
+      ),
+    );
+  });
 
   router.get('/component-endpoints', async (req, res) => {
     const { componentTypeKind, componentTypeName } = req.query;
@@ -1726,8 +1746,14 @@ export async function createRouter({
   });
 
   router.post('/endpoint-backends', requireAuth, async (req, res) => {
-    const { namespaceName, endpointName, component, workloadEndpoint, weight } =
-      req.body;
+    const {
+      namespaceName,
+      endpointName,
+      component,
+      workloadEndpoint,
+      releaseLine,
+      weight,
+    } = req.body;
     if (!namespaceName || !endpointName || !component || !workloadEndpoint) {
       throw new InputError(
         'namespaceName, endpointName, component and workloadEndpoint are required in request body',
@@ -1738,7 +1764,17 @@ export async function createRouter({
     }
     res.json(
       await endpointInfoService.addEndpointBackend(
-        { namespaceName, endpointName, component, workloadEndpoint, weight },
+        {
+          namespaceName,
+          endpointName,
+          component,
+          workloadEndpoint,
+          releaseLine:
+            typeof releaseLine === 'string'
+              ? toStoredReleaseLine(releaseLine)
+              : undefined,
+          weight,
+        },
         getUserTokenFromRequest(req),
       ),
     );
@@ -1973,13 +2009,14 @@ export async function createRouter({
       userToken,
     );
 
-    // The component's own Endpoints move with it: promoted from the same
-    // source environment, or deployed at their latest release.
+    // The line's own Endpoints move with it: promoted from the same source
+    // environment, or deployed at their latest release.
     await environmentInfoService.syncComponentEndpointBindings(
       {
         componentName: componentName as string,
         projectName: projectName as string,
         namespaceName: namespaceName as string,
+        releaseLine: requestReleaseLine(req),
         environment: environment as string,
         sourceEnvironment: sourceEnvironment
           ? (sourceEnvironment as string)

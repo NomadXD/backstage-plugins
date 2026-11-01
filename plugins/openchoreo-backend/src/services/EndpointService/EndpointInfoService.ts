@@ -9,15 +9,19 @@ import {
   CHOREO_LABELS,
   buildComponentEndpoint,
   componentEndpointName,
+  endpointManagingComponent,
+  endpointManagingReleaseLine,
+  releaseLineEndpointInputs,
   toDnsLabel,
+  toStoredReleaseLine,
   type APIResponse,
   type AllowedEndpointTypeEntry,
+  type ComponentEndpointInput,
   type ComponentEndpointSummary,
   type EndpointTypeKind,
 } from '@openchoreo/backstage-plugin-common';
 import type { ApiSchemaResponse } from '../types';
 import {
-  isManagedBy,
   listComponentEndpoints,
   toComponentEndpointSummary,
   type ComponentRef,
@@ -30,6 +34,14 @@ type EndpointBackendRef = NonNullable<Endpoint['spec']>['backendRefs'][number];
 export interface EndpointRef {
   namespaceName: string;
   endpointName: string;
+}
+
+/** Names a component's line in messages: the component for its main line. */
+function lineSubject(request: ComponentRef): string {
+  const line = toStoredReleaseLine(request.releaseLine);
+  return line
+    ? `release line ${line} of component ${request.componentName}`
+    : `component ${request.componentName}`;
 }
 
 /** The most backends an Endpoint takes, as the Endpoint CRD allows. */
@@ -224,10 +236,40 @@ export class EndpointInfoService {
   }
 
   /**
-   * Creates an Endpoint for one of a component's workload endpoints, named
-   * and labeled as the component creation flow does. When the plain
-   * `<component>-<endpoint>` name is taken, the EndpointType is appended, as
-   * for a workload endpoint exposed through more than one type.
+   * Returns drafts of a release line's Endpoints: the generator's copies of
+   * the component's main-line Endpoints for the line, less those the line
+   * already has. Nothing is created: the line's configure page lets the user
+   * adjust each draft, such as its parameters, and creates the ones kept
+   * through createComponentEndpoint.
+   */
+  async fetchReleaseLineEndpointDrafts(
+    request: ComponentRef & { releaseLine: string; autoDeploy: boolean },
+    token?: string,
+  ): Promise<ComponentEndpointInput[]> {
+    const releaseLine = toStoredReleaseLine(request.releaseLine);
+    if (!releaseLine) {
+      throw new InputError('releaseLine must name a release line, not main');
+    }
+    const client = this.client(token);
+    const [main, line] = await Promise.all([
+      listComponentEndpoints(client, { ...request, releaseLine: undefined }),
+      listComponentEndpoints(client, { ...request, releaseLine }),
+    ]);
+    const existing = new Set(line.map(ep => ep.metadata.name));
+    return releaseLineEndpointInputs(main.map(toComponentEndpointSummary), {
+      componentName: request.componentName,
+      projectName: request.projectName,
+      releaseLine,
+      autoDeploy: request.autoDeploy,
+    }).filter(draft => !existing.has(draft.name));
+  }
+
+  /**
+   * Creates an Endpoint for one of a component's workload endpoints, on its
+   * main line or on one of its release lines, named and labeled as the
+   * component creation flow does. When the plain name is taken, the
+   * EndpointType is appended, as for a workload endpoint exposed through more
+   * than one type.
    */
   async createComponentEndpoint(
     request: ComponentRef & {
@@ -244,12 +286,19 @@ export class EndpointInfoService {
       throw new InputError('An Endpoint needs at least one visibility');
     }
     const client = this.client(token);
+    const releaseLine = toStoredReleaseLine(request.releaseLine);
     const names = [
-      componentEndpointName(request.componentName, request.workloadEndpoint),
+      componentEndpointName(
+        request.componentName,
+        request.workloadEndpoint,
+        undefined,
+        releaseLine,
+      ),
       componentEndpointName(
         request.componentName,
         request.workloadEndpoint,
         request.typeName,
+        releaseLine,
       ),
     ];
     for (const [i, name] of names.entries()) {
@@ -257,7 +306,11 @@ export class EndpointInfoService {
         '/api/v1/namespaces/{namespaceName}/endpoints',
         {
           params: { path: { namespaceName: request.namespaceName } },
-          body: buildComponentEndpoint({ ...request, name }) as any,
+          body: buildComponentEndpoint({
+            ...request,
+            releaseLine,
+            name,
+          }) as any,
         },
       );
       if (response.status === 409 && i < names.length - 1) {
@@ -268,7 +321,11 @@ export class EndpointInfoService {
         'create component endpoint',
       );
       this.logger.info(
-        `Created Endpoint ${name} (${request.typeKind} ${request.typeName}) for workload endpoint ${request.workloadEndpoint} of component ${request.componentName}`,
+        `Created Endpoint ${name} (${request.typeKind} ${
+          request.typeName
+        }) for workload endpoint ${request.workloadEndpoint} of ${lineSubject(
+          request,
+        )}`,
       );
       return { name };
     }
@@ -382,22 +439,28 @@ export class EndpointInfoService {
   }
 
   /**
-   * Adds a backend to an Endpoint, routing part of its traffic to another
-   * component's workload endpoint. The Endpoint then belongs to its project:
-   * the source-component and source-endpoint labels are dropped, so the
-   * Endpoint controller re-parents it to the Project, the catalog lists it in
-   * the project's contents, and the component's configure page and deploys
-   * no longer manage it.
+   * Adds a backend to an Endpoint, routing part of its traffic to a
+   * component's workload endpoint, on the component's main line or on one of
+   * its release lines. The Endpoint then belongs to its project: the
+   * source-component, source-endpoint and source-release-line labels are
+   * dropped, so the Endpoint controller re-parents it to the Project, the
+   * catalog lists it in the project's contents, and the component's configure
+   * page and deploys no longer manage it.
    */
   async addEndpointBackend(
     request: EndpointRef & {
       component: string;
       workloadEndpoint: string;
+      releaseLine?: string;
       weight?: number;
     },
     token?: string,
   ): Promise<{ name: string; backendName: string }> {
     let backendName = '';
+    const releaseLine = toStoredReleaseLine(request.releaseLine);
+    const target = releaseLine
+      ? `${request.component}@${releaseLine}/${request.workloadEndpoint}`
+      : `${request.component}/${request.workloadEndpoint}`;
     await this.updateEndpointBackends(
       request,
       token,
@@ -412,15 +475,19 @@ export class EndpointInfoService {
           refs.some(
             ref =>
               ref.component?.name === request.component &&
-              ref.component?.endpoint === request.workloadEndpoint,
+              ref.component?.endpoint === request.workloadEndpoint &&
+              (toStoredReleaseLine(ref.component?.releaseLine) ?? '') ===
+                (releaseLine ?? ''),
           )
         ) {
           throw new InputError(
-            `Endpoint ${request.endpointName} already routes to ${request.component}/${request.workloadEndpoint}`,
+            `Endpoint ${request.endpointName} already routes to ${target}`,
           );
         }
         const base = toDnsLabel(
-          `${request.component}-${request.workloadEndpoint}`,
+          releaseLine
+            ? `${request.component}-${releaseLine}-${request.workloadEndpoint}`
+            : `${request.component}-${request.workloadEndpoint}`,
         ).slice(0, 60);
         const taken = new Set(refs.map(ref => ref.name));
         backendName = base;
@@ -430,6 +497,7 @@ export class EndpointInfoService {
         const {
           [CHOREO_LABELS.ENDPOINT_SOURCE_COMPONENT]: _component,
           [CHOREO_LABELS.ENDPOINT_SOURCE_ENDPOINT]: _endpoint,
+          [CHOREO_LABELS.ENDPOINT_SOURCE_RELEASE_LINE]: _line,
           ...labels
         } = endpoint.metadata.labels ?? {};
         return {
@@ -442,6 +510,7 @@ export class EndpointInfoService {
               component: {
                 name: request.component,
                 endpoint: request.workloadEndpoint,
+                ...(releaseLine ? { releaseLine } : {}),
               },
               ...(request.weight !== undefined && { weight: request.weight }),
             },
@@ -581,13 +650,28 @@ export class EndpointInfoService {
     );
     assertApiResponse({ data, error, response }, 'fetch endpoint');
     const endpoint = data!;
+    const ownership = {
+      labels: endpoint.metadata.labels,
+      backendRefs: endpoint.spec?.backendRefs,
+    };
     if (
       !endpoint.spec ||
       endpoint.spec.owner.projectName !== request.projectName ||
-      !isManagedBy(endpoint, request.componentName)
+      endpointManagingComponent(ownership) !== request.componentName
     ) {
       throw new NotAllowedError(
         `Endpoint ${request.endpointName} is not managed by component ${request.componentName}; change it from its project instead`,
+      );
+    }
+    const line = endpointManagingReleaseLine(ownership);
+    if (line !== (toStoredReleaseLine(request.releaseLine) ?? '')) {
+      // The component's Endpoint of another line: refused, so one line's page
+      // never rewrites another line's Endpoint.
+      throw new NotAllowedError(
+        `Endpoint ${request.endpointName} belongs to ${lineSubject({
+          ...request,
+          releaseLine: line,
+        })}, not ${lineSubject(request)}; change it from there instead`,
       );
     }
     return { ...endpoint, spec: endpoint.spec };
