@@ -745,7 +745,10 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
     });
   }
 
-  async fetchComponentEndpoints(entity: Entity): Promise<{
+  async fetchComponentEndpoints(
+    entity: Entity,
+    releaseLine?: string,
+  ): Promise<{
     endpoints: ComponentEndpointSummary[];
     allowedEndpoints: AllowedEndpointTypeEntry[];
   }> {
@@ -754,15 +757,20 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
     // The annotation reads `<workloadType>/<name>`.
     const componentType = annotations[CHOREO_ANNOTATIONS.COMPONENT_TYPE] ?? '';
     return this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
-      params: {
-        componentName: component,
-        projectName: project,
-        namespaceName: namespace,
-        componentTypeKind:
-          annotations[CHOREO_ANNOTATIONS.COMPONENT_TYPE_KIND] ??
-          'ComponentType',
-        componentTypeName: componentType.slice(componentType.indexOf('/') + 1),
-      },
+      params: withReleaseLine(
+        {
+          componentName: component,
+          projectName: project,
+          namespaceName: namespace,
+          componentTypeKind:
+            annotations[CHOREO_ANNOTATIONS.COMPONENT_TYPE_KIND] ??
+            'ComponentType',
+          componentTypeName: componentType.slice(
+            componentType.indexOf('/') + 1,
+          ),
+        },
+        releaseLine,
+      ),
     });
   }
 
@@ -776,10 +784,15 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
       parameters?: Record<string, unknown>;
       autoDeploy: boolean;
     },
+    releaseLine?: string,
   ): Promise<{ name: string }> {
     return this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
       method: 'POST',
-      body: { ...componentRefBody(entity), ...endpoint },
+      body: {
+        ...componentRefBody(entity),
+        ...releaseLineField(releaseLine),
+        ...endpoint,
+      },
     });
   }
 
@@ -791,20 +804,31 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
       parameters?: Record<string, unknown>;
       workloadEndpoint?: string;
     },
+    releaseLine?: string,
   ): Promise<ComponentEndpointSummary> {
     return this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
       method: 'PUT',
-      body: { ...componentRefBody(entity), endpointName, ...update },
+      body: {
+        ...componentRefBody(entity),
+        ...releaseLineField(releaseLine),
+        endpointName,
+        ...update,
+      },
     });
   }
 
   async deleteComponentEndpoint(
     entity: Entity,
     endpointName: string,
+    releaseLine?: string,
   ): Promise<void> {
     await this.apiFetch(API_ENDPOINTS.COMPONENT_ENDPOINTS, {
       method: 'DELETE',
-      body: { ...componentRefBody(entity), endpointName },
+      body: {
+        ...componentRefBody(entity),
+        ...releaseLineField(releaseLine),
+        endpointName,
+      },
     });
   }
 

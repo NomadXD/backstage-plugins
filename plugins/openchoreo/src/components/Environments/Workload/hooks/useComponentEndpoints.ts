@@ -4,6 +4,7 @@ import { useApi } from '@backstage/core-plugin-api';
 import {
   endpointTypeKey,
   parseEndpointTypeKey,
+  toStoredReleaseLine,
   type AllowedEndpointTypeEntry,
   type ComponentEndpointSummary,
   type EndpointExposureChoice,
@@ -73,12 +74,17 @@ export interface ComponentEndpointsState {
 
 const EMPTY: AllowedEndpointTypeEntry[] = [];
 
-/** Loads a component's own Endpoints and stages changes to them. */
+/**
+ * Loads a component's own Endpoints and stages changes to them: those of its
+ * main line, or of the release line given in options, so a line's configure
+ * page manages only the line's Endpoints.
+ */
 export function useComponentEndpoints(
   entity: Entity,
-  options: { skip?: boolean } = {},
+  options: { skip?: boolean; releaseLine?: string } = {},
 ): ComponentEndpointsState {
   const client = useApi(openChoreoClientApiRef);
+  const releaseLine = options.releaseLine;
   const [loading, setLoading] = useState(!options.skip);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [allowedEndpoints, setAllowedEndpoints] =
@@ -97,7 +103,7 @@ export function useComponentEndpoints(
     let cancelled = false;
     setLoading(true);
     client
-      .fetchComponentEndpoints(entity)
+      .fetchComponentEndpoints(entity, releaseLine)
       .then(result => {
         if (cancelled) return;
         setAllowedEndpoints(result.allowedEndpoints ?? EMPTY);
@@ -124,7 +130,7 @@ export function useComponentEndpoints(
     return () => {
       cancelled = true;
     };
-  }, [client, entity, options.skip]);
+  }, [client, entity, releaseLine, options.skip]);
 
   const setChoice = useCallback(
     (workloadEndpoint: string, choice: EndpointExposureChoice) => {
@@ -207,7 +213,11 @@ export function useComponentEndpoints(
             : change.original.name;
         try {
           if (change.op === 'delete') {
-            await client.deleteComponentEndpoint(entity, change.original.name);
+            await client.deleteComponentEndpoint(
+              entity,
+              change.original.name,
+              releaseLine,
+            );
             setOriginals(prev => prev.filter(o => o !== change.original));
           } else if (change.op === 'update') {
             const saved = await client.updateComponentEndpoint(
@@ -218,6 +228,7 @@ export function useComponentEndpoints(
                 parameters: change.parameters,
                 workloadEndpoint: change.workloadEndpoint,
               },
+              releaseLine,
             );
             setOriginals(prev =>
               prev.map(o => (o === change.original ? saved : o)),
@@ -226,18 +237,23 @@ export function useComponentEndpoints(
             const { kind, name: typeName } = parseEndpointTypeKey(
               change.typeKey,
             );
-            const { name } = await client.createComponentEndpoint(entity, {
-              workloadEndpoint: change.workloadEndpoint,
-              typeKind: kind,
-              typeName,
-              visibility: change.visibility,
-              parameters: change.parameters,
-              autoDeploy,
-            });
+            const { name } = await client.createComponentEndpoint(
+              entity,
+              {
+                workloadEndpoint: change.workloadEndpoint,
+                typeKind: kind,
+                typeName,
+                visibility: change.visibility,
+                parameters: change.parameters,
+                autoDeploy,
+              },
+              releaseLine,
+            );
             setOriginals(prev => [
               ...prev,
               {
                 name,
+                releaseLine: toStoredReleaseLine(releaseLine) ?? '',
                 workloadEndpoint: change.workloadEndpoint,
                 typeKind: kind,
                 typeName,
@@ -260,7 +276,16 @@ export function useComponentEndpoints(
       setRenames({});
       setInitialMode(mode);
     },
-    [client, entity, mode, allowedEndpoints, choices, originals, renames],
+    [
+      client,
+      entity,
+      releaseLine,
+      mode,
+      allowedEndpoints,
+      choices,
+      originals,
+      renames,
+    ],
   );
 
   return useMemo(
