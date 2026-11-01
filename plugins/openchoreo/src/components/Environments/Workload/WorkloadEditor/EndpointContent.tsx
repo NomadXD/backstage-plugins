@@ -210,6 +210,17 @@ export const EndpointContent: FC<EndpointContentProps> = ({
           {componentEndpoints.loadError}
         </Typography>
       )}
+      {componentEndpoints?.mode === 'endpoints' &&
+        componentEndpoints.draftedFromMain > 0 && (
+          <Box mb={2}>
+            <Alert severity="info">
+              This release line has no Endpoints yet, so the endpoints are
+              prefilled from the main line's Endpoints. Review each one's
+              Endpoint type and parameters, such as its path, before saving:
+              saving creates these Endpoints for this release line.
+            </Alert>
+          </Box>
+        )}
       <Box mb={2}>
         <FormBanner state={componentEndpoints} disabled={disabled} />
       </Box>

@@ -11,6 +11,7 @@ import {
   type ReleaseLineOverrides,
   type ReleaseLineResource,
   type AllowedEndpointTypeEntry,
+  type ComponentEndpointInput,
   type ComponentEndpointSummary,
   type EndpointTypeKind,
 } from '@openchoreo/backstage-plugin-common';
@@ -117,6 +118,7 @@ const API_ENDPOINTS = {
   ENDPOINT_TYPE_SCHEMA: '/endpoint-type-schema',
   CLUSTER_ENDPOINT_TYPE_SCHEMA: '/cluster-endpoint-type-schema',
   COMPONENT_ENDPOINTS: '/component-endpoints',
+  RELEASE_LINE_ENDPOINT_DRAFTS: '/release-line-endpoint-drafts',
   ENDPOINT_BACKENDS: '/endpoint-backends',
   COMPONENT_TRAITS: '/component-traits',
   RELEASE_LINE: '/release-line',
@@ -771,6 +773,15 @@ export class OpenChoreoClient implements OpenChoreoClientApi {
         },
         releaseLine,
       ),
+    });
+  }
+
+  async fetchReleaseLineEndpointDrafts(
+    entity: Entity,
+    releaseLine: string,
+  ): Promise<ComponentEndpointInput[]> {
+    return this.apiFetch(API_ENDPOINTS.RELEASE_LINE_ENDPOINT_DRAFTS, {
+      params: withReleaseLine(componentRefBody(entity), releaseLine),
     });
   }
 

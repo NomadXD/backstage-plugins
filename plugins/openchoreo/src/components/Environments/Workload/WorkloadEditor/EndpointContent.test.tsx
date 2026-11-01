@@ -67,6 +67,7 @@ function state(
     loadError: null,
     allowedEndpoints: [httpRoute],
     originals: [],
+    draftedFromMain: 0,
     choices: {},
     renames: {},
     mode: 'endpoints',
@@ -111,6 +112,22 @@ describe('EndpointContent', () => {
     expect(screen.getAllByText(/endpoints-form/)).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Switch' }));
     expect(setMode).toHaveBeenCalledWith('legacy');
+  });
+
+  it("says a release line's rows are prefilled from the main line", () => {
+    renderContent(state({ draftedFromMain: 1 }));
+
+    expect(
+      screen.getByText(/prefilled from the main line's Endpoints/),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no prefill notice once the line has Endpoints of its own', () => {
+    renderContent(state());
+
+    expect(
+      screen.queryByText(/prefilled from the main line's Endpoints/),
+    ).not.toBeInTheDocument();
   });
 
   it('keeps a protocol no type serves project-scoped in the Endpoints form', () => {

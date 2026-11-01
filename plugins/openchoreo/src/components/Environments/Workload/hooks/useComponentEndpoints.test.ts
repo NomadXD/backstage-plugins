@@ -8,6 +8,7 @@ import { useComponentEndpoints } from './useComponentEndpoints';
 
 const client = {
   fetchComponentEndpoints: jest.fn(),
+  fetchReleaseLineEndpointDrafts: jest.fn(),
   createComponentEndpoint: jest.fn(),
   updateComponentEndpoint: jest.fn(),
   deleteComponentEndpoint: jest.fn(),
@@ -115,5 +116,99 @@ describe('useComponentEndpoints on a release line', () => {
       entity,
       undefined,
     );
+  });
+});
+
+describe('useComponentEndpoints on a release line without Endpoints', () => {
+  const draft = {
+    name: 'orders-next-api',
+    componentName: 'orders',
+    projectName: 'store',
+    releaseLine: 'next',
+    workloadEndpoint: 'api',
+    typeKind: 'ClusterEndpointType' as const,
+    typeName: 'unmanaged-http',
+    visibility: ['external'],
+    parameters: { pathPrefix: '/orders' },
+    autoDeploy: false,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    client.fetchComponentEndpoints.mockResolvedValue({
+      endpoints: [],
+      allowedEndpoints: [
+        { protocols: ['HTTP'], ref: unmanagedHttp, default: true },
+      ],
+    });
+    client.fetchReleaseLineEndpointDrafts.mockResolvedValue([draft]);
+    client.createComponentEndpoint.mockResolvedValue({
+      name: 'orders-next-api',
+    });
+  });
+
+  it("prefills the line's rows from the main line and creates them on save", async () => {
+    const { result } = renderHook(() =>
+      useComponentEndpoints(entity, { releaseLine: 'next' }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(client.fetchReleaseLineEndpointDrafts).toHaveBeenCalledWith(
+      entity,
+      'next',
+    );
+    expect(result.current.draftedFromMain).toBe(1);
+    expect(result.current.choices.api).toEqual({
+      type: endpointTypeKey(unmanagedHttp),
+      parameters: { pathPrefix: '/orders' },
+    });
+
+    let rows: Record<string, { protocol: string; visibility?: string[] }> = {};
+    act(() => {
+      rows = result.current.prepare({ api: { protocol: 'HTTP' } });
+    });
+    expect(rows.api.visibility).toEqual(['external']);
+    expect(result.current.mode).toBe('endpoints');
+
+    await act(() => result.current.apply(rows, true));
+    expect(client.createComponentEndpoint).toHaveBeenCalledWith(
+      entity,
+      expect.objectContaining({
+        workloadEndpoint: 'api',
+        typeName: 'unmanaged-http',
+        visibility: ['external'],
+        parameters: { pathPrefix: '/orders' },
+      }),
+      'next',
+    );
+    expect(result.current.draftedFromMain).toBe(0);
+  });
+
+  it('drafts nothing for the main line', async () => {
+    const { result } = renderHook(() => useComponentEndpoints(entity));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(client.fetchReleaseLineEndpointDrafts).not.toHaveBeenCalled();
+    expect(result.current.draftedFromMain).toBe(0);
+  });
+
+  it('drafts nothing for a line that has Endpoints already', async () => {
+    client.fetchComponentEndpoints.mockResolvedValue({
+      endpoints: [summary('orders-next-api', 'api')],
+      allowedEndpoints: [],
+    });
+    const { result } = renderHook(() =>
+      useComponentEndpoints(entity, { releaseLine: 'next' }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(client.fetchReleaseLineEndpointDrafts).not.toHaveBeenCalled();
+  });
+
+  it('opens without drafts when they cannot be fetched', async () => {
+    client.fetchReleaseLineEndpointDrafts.mockRejectedValue(new Error('down'));
+    const { result } = renderHook(() =>
+      useComponentEndpoints(entity, { releaseLine: 'next' }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.loadError).toBeNull();
+    expect(result.current.draftedFromMain).toBe(0);
   });
 });
