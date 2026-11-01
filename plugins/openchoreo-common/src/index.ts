@@ -215,14 +215,17 @@ export {
 } from './utils/endpointExposure';
 export {
   endpointManagingComponent,
+  endpointManagingReleaseLine,
   type EndpointOwnershipInput,
 } from './utils/endpointOwnership';
 export {
   toDnsLabel,
   componentEndpointName,
   buildComponentEndpoint,
+  releaseLineEndpointInputs,
   type ComponentEndpointInput,
   type ComponentEndpointSummary,
+  type ReleaseLineEndpointTarget,
 } from './utils/componentEndpoint';
 
 // Feature flags types

@@ -1,7 +1,9 @@
 import {
   buildComponentEndpoint,
   componentEndpointName,
+  releaseLineEndpointInputs,
   toDnsLabel,
+  type ComponentEndpointSummary,
 } from './componentEndpoint';
 
 describe('toDnsLabel', () => {
@@ -31,6 +33,29 @@ describe('componentEndpointName', () => {
   it('appends the EndpointType when asked', () => {
     expect(componentEndpointName('orders', 'api', 'managed-http')).toBe(
       'orders-api-managed-http',
+    );
+  });
+
+  it("names a release line's Endpoint apart from the main line's", () => {
+    expect(componentEndpointName('orders', 'api', undefined, 'next')).toBe(
+      'orders-next-api',
+    );
+    expect(componentEndpointName('orders', 'api', 'managed-http', 'next')).toBe(
+      'orders-next-api-managed-http',
+    );
+  });
+
+  it('keeps a long release line name a valid, distinct label', () => {
+    const line = 'a-very-long-release-line-name-for-a-preview-branch';
+    const name = componentEndpointName(
+      'orders-service',
+      'api',
+      undefined,
+      line,
+    );
+    expect(name).toHaveLength(63);
+    expect(name).not.toBe(
+      componentEndpointName('orders-service', 'api', undefined, `${line}2`),
     );
   });
 });
@@ -72,6 +97,26 @@ describe('buildComponentEndpoint', () => {
     });
   });
 
+  it('routes to and labels the release line it was created for', () => {
+    const endpoint = buildComponentEndpoint({
+      ...input,
+      name: 'orders-next-api',
+      releaseLine: 'next',
+    });
+    expect(endpoint.metadata.labels).toEqual({
+      'openchoreo.dev/source-component': 'orders',
+      'openchoreo.dev/source-endpoint': 'api',
+      'openchoreo.dev/source-release-line': 'next',
+    });
+    expect(endpoint.spec.backendRefs).toEqual([
+      {
+        name: 'next',
+        kind: 'Component',
+        component: { name: 'orders', endpoint: 'api', releaseLine: 'next' },
+      },
+    ]);
+  });
+
   it('carries parameters only when there are any', () => {
     expect(
       buildComponentEndpoint({ ...input, parameters: {} }).spec,
@@ -80,5 +125,87 @@ describe('buildComponentEndpoint', () => {
       buildComponentEndpoint({ ...input, parameters: { host: 'a' } }).spec
         .parameters,
     ).toEqual({ host: 'a' });
+  });
+});
+
+describe('releaseLineEndpointInputs', () => {
+  const summary = (
+    over: Partial<ComponentEndpointSummary>,
+  ): ComponentEndpointSummary => ({
+    name: 'orders-api',
+    workloadEndpoint: 'api',
+    typeKind: 'ClusterEndpointType',
+    typeName: 'unmanaged-http',
+    visibility: ['external'],
+    parameters: { pathPrefix: '/orders', cors: true },
+    autoDeploy: false,
+    ...over,
+  });
+  const target = {
+    componentName: 'orders',
+    projectName: 'store',
+    releaseLine: 'next',
+    autoDeploy: true,
+  };
+
+  it('copies each main Endpoint for the line', () => {
+    expect(releaseLineEndpointInputs([summary({})], target)).toEqual([
+      {
+        name: 'orders-next-api',
+        componentName: 'orders',
+        projectName: 'store',
+        releaseLine: 'next',
+        workloadEndpoint: 'api',
+        typeKind: 'ClusterEndpointType',
+        typeName: 'unmanaged-http',
+        visibility: ['external'],
+        parameters: { pathPrefix: '/orders', cors: true },
+        autoDeploy: true,
+      },
+    ]);
+  });
+
+  it('keeps the EndpointType suffix a main Endpoint was named with', () => {
+    const inputs = releaseLineEndpointInputs(
+      [
+        summary({}),
+        summary({
+          name: 'orders-api-managed-http',
+          typeName: 'managed-http',
+        }),
+      ],
+      target,
+    );
+    expect(inputs.map(i => i.name)).toEqual([
+      'orders-next-api',
+      'orders-next-api-managed-http',
+    ]);
+  });
+
+  it('skips Endpoints that already belong to a release line', () => {
+    expect(
+      releaseLineEndpointInputs(
+        [summary({ name: 'orders-other-api', releaseLine: 'other' })],
+        target,
+      ),
+    ).toEqual([]);
+  });
+
+  it('builds Endpoints that route to the line', () => {
+    const [input] = releaseLineEndpointInputs([summary({})], target);
+    const endpoint = buildComponentEndpoint(input);
+    expect(endpoint.metadata.name).toBe('orders-next-api');
+    expect(endpoint.spec.backendRefs[0].component).toEqual({
+      name: 'orders',
+      endpoint: 'api',
+      releaseLine: 'next',
+    });
+  });
+
+  it('does not share the parameters object with the main Endpoint', () => {
+    const main = summary({});
+    const [input] = releaseLineEndpointInputs([main], target);
+    input.parameters!.pathPrefix = '/changed';
+    expect(main.parameters.pathPrefix).toBe('/orders');
   });
 });

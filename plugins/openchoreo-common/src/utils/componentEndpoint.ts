@@ -1,9 +1,11 @@
 /**
- * Building the Endpoint created for one workload endpoint of a component.
+ * Building the Endpoint created for one workload endpoint of a component, or
+ * of one of its release lines.
  *
  * Shared by the scaffolder action, which creates a component's Endpoints with
  * it, and the backend, which creates more of them later from the component's
- * configure page, so both name and label an Endpoint the same way.
+ * or a release line's configure page, so all of them name and label an
+ * Endpoint the same way. Other clients (occ) follow the same contract.
  */
 import { CHOREO_LABELS } from '../constants';
 import type { EndpointTypeKind } from './endpointExposure';
@@ -42,15 +44,20 @@ export function toDnsLabel(value: string): string {
 
 /**
  * Name of the Endpoint for a component's workload endpoint:
- * `<component>-<endpoint>`, suffixed with the EndpointType when the workload
- * endpoint is exposed through more than one type.
+ * `<component>-<endpoint>` for its main line, `<component>-<line>-<endpoint>`
+ * for one of its release lines, suffixed with the EndpointType when the
+ * workload endpoint is exposed through more than one type. A line's Endpoint
+ * is named apart from main's, so the two never collide as resources.
  */
 export function componentEndpointName(
   componentName: string,
   workloadEndpoint: string,
   typeName?: string,
+  releaseLine?: string,
 ): string {
-  const base = `${componentName}-${workloadEndpoint}`;
+  const base = releaseLine
+    ? `${componentName}-${releaseLine}-${workloadEndpoint}`
+    : `${componentName}-${workloadEndpoint}`;
   return toDnsLabel(typeName ? `${base}-${typeName}` : base);
 }
 
@@ -60,6 +67,11 @@ export function componentEndpointName(
  */
 export interface ComponentEndpointSummary {
   name: string;
+  /**
+   * The release line the Endpoint was created for, or '' for the component's
+   * main line. Absent when the summary predates release lines.
+   */
+  releaseLine?: string;
   /** The workload endpoint of the component the Endpoint routes to. */
   workloadEndpoint: string;
   typeKind: EndpointTypeKind;
@@ -77,6 +89,8 @@ export interface ComponentEndpointInput {
   name: string;
   componentName: string;
   projectName: string;
+  /** The component's release line to route to; omitted for its main line. */
+  releaseLine?: string;
   workloadEndpoint: string;
   typeKind: EndpointTypeKind;
   typeName: string;
@@ -87,11 +101,13 @@ export interface ComponentEndpointInput {
 
 /**
  * The Endpoint resource for a component's workload endpoint, labeled with the
- * component and endpoint it was created for. While every backend of the
- * Endpoint is that component, the Endpoint controller makes the Component its
- * owner, so deleting the component deletes the Endpoint.
+ * component, endpoint and, for a release line, the line it was created for.
+ * Its backend routes to that line. While every backend of the Endpoint is that
+ * component, the Endpoint controller makes the Component its owner, so
+ * deleting the component deletes the Endpoint.
  */
 export function buildComponentEndpoint(input: ComponentEndpointInput) {
+  const line = input.releaseLine;
   return {
     metadata: {
       name: input.name,
@@ -100,6 +116,7 @@ export function buildComponentEndpoint(input: ComponentEndpointInput) {
         [CHOREO_LABELS.ENDPOINT_SOURCE_ENDPOINT]: toDnsLabel(
           input.workloadEndpoint,
         ),
+        ...(line ? { [CHOREO_LABELS.ENDPOINT_SOURCE_RELEASE_LINE]: line } : {}),
       },
     },
     spec: {
@@ -108,11 +125,12 @@ export function buildComponentEndpoint(input: ComponentEndpointInput) {
       visibility: input.visibility,
       backendRefs: [
         {
-          name: toDnsLabel(input.componentName),
+          name: toDnsLabel(line || input.componentName),
           kind: 'Component' as const,
           component: {
             name: input.componentName,
             endpoint: input.workloadEndpoint,
+            ...(line ? { releaseLine: line } : {}),
           },
         },
       ],
@@ -123,4 +141,64 @@ export function buildComponentEndpoint(input: ComponentEndpointInput) {
       autoDeploy: input.autoDeploy,
     },
   };
+}
+
+/** The release line a set of main-line Endpoints is copied to. */
+export interface ReleaseLineEndpointTarget {
+  componentName: string;
+  projectName: string;
+  releaseLine: string;
+  /** The line's effective autoDeploy, which its Endpoints follow. */
+  autoDeploy: boolean;
+}
+
+/**
+ * The generator for a release line's Endpoints: one Endpoint per Endpoint the
+ * component has on its main line, copied for the line. Each copy keeps the
+ * EndpointType, visibility and parameters, routes to the line, and is named
+ * and labeled for it; a main Endpoint named with its EndpointType keeps that
+ * suffix.
+ *
+ * Parameters are copied as they are, without assuming how the EndpointType
+ * tells the copies apart: one type gives each Endpoint its own hostname,
+ * another serves them on one host under different paths. The inputs are
+ * drafts, so a client lets the user adjust parameters such as a path prefix
+ * before creating them.
+ *
+ * Endpoints of other lines are skipped, so the summaries of a component's
+ * Endpoints can be passed as they are. Names are deterministic, so running
+ * the generator again yields the same Endpoints.
+ */
+export function releaseLineEndpointInputs(
+  mainEndpoints: ComponentEndpointSummary[],
+  target: ReleaseLineEndpointTarget,
+): ComponentEndpointInput[] {
+  return mainEndpoints
+    .filter(ep => !ep.releaseLine)
+    .map(ep => {
+      const typed =
+        ep.name ===
+        componentEndpointName(
+          target.componentName,
+          ep.workloadEndpoint,
+          ep.typeName,
+        );
+      return {
+        name: componentEndpointName(
+          target.componentName,
+          ep.workloadEndpoint,
+          typed ? ep.typeName : undefined,
+          target.releaseLine,
+        ),
+        componentName: target.componentName,
+        projectName: target.projectName,
+        releaseLine: target.releaseLine,
+        workloadEndpoint: ep.workloadEndpoint,
+        typeKind: ep.typeKind,
+        typeName: ep.typeName,
+        visibility: [...ep.visibility],
+        parameters: { ...ep.parameters },
+        autoDeploy: target.autoDeploy,
+      };
+    });
 }

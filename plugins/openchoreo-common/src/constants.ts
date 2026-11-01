@@ -105,6 +105,9 @@ export const CHOREO_LABELS = {
   ENDPOINT_SOURCE_COMPONENT: 'openchoreo.dev/source-component',
   // The workload endpoint of the source component an Endpoint was created for.
   ENDPOINT_SOURCE_ENDPOINT: 'openchoreo.dev/source-endpoint',
+  // The release line of the source component an Endpoint was created for.
+  // Absent on Endpoints created for the component's main line.
+  ENDPOINT_SOURCE_RELEASE_LINE: 'openchoreo.dev/source-release-line',
   // Set on catalog Endpoint entities: whether the Endpoint is managed by a
   // component or owned by its project. See {@link ENDPOINT_SCOPE}.
   ENDPOINT_SCOPE: 'openchoreo.io/endpoint-scope',
