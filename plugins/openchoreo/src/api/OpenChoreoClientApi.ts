@@ -981,7 +981,12 @@ export interface OpenChoreoClientApi {
    */
   addEndpointBackend(
     entity: Entity,
-    backend: { component: string; workloadEndpoint: string; weight?: number },
+    backend: {
+      component: string;
+      workloadEndpoint: string;
+      releaseLine?: string;
+      weight?: number;
+    },
   ): Promise<{ name: string; backendName: string }>;
 
   /** Set the weight of one of an Endpoint entity's backends. */

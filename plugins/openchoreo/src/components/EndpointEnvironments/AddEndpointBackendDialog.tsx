@@ -20,8 +20,18 @@ import { useProjectWorkloadEndpoints } from '../../scaffolder/EndpointBackendsFi
 import { getErrorMessage } from '../../utils/errorUtils';
 import type { EndpointBackend } from '../EndpointOverview/EndpointBackendList';
 
-const optionKey = (component: string, endpoint: string) =>
-  `${component}/${endpoint}`;
+/** Identifies a workload endpoint of a component's main line or release line. */
+const optionKey = (component: string, endpoint: string, releaseLine?: string) =>
+  `${component}@${releaseLine ?? ''}/${endpoint}`;
+
+const optionLabel = (
+  component: string,
+  endpoint: string,
+  releaseLine?: string,
+) =>
+  releaseLine
+    ? `${component} @ ${releaseLine} / ${endpoint}`
+    : `${component} / ${endpoint}`;
 
 interface AddEndpointBackendDialogProps {
   open: boolean;
@@ -73,19 +83,25 @@ export const AddEndpointBackendDialog = ({
   } = useProjectWorkloadEndpoints(
     confirmed ? entity.metadata.namespace : undefined,
     project,
+    { includeReleaseLines: true },
   );
-  // Any workload endpoint can be a backend: the Endpoint carries the
+  // Any workload endpoint can be a backend, on a component's main line or on
+  // one of its release lines, as for a canary: the Endpoint carries the
   // visibility, so the workload endpoint needs none of its own.
   const available = useMemo(() => {
     const taken = new Set(
-      backends.map(b => optionKey(b.component ?? '', b.endpoint ?? '')),
+      backends.map(b =>
+        optionKey(b.component ?? '', b.endpoint ?? '', b.releaseLine),
+      ),
     );
-    return options.filter(o => !taken.has(optionKey(o.component, o.endpoint)));
+    return options.filter(
+      o => !taken.has(optionKey(o.component, o.endpoint, o.releaseLine)),
+    );
   }, [options, backends]);
 
   const handleAdd = async () => {
     const option = available.find(
-      o => optionKey(o.component, o.endpoint) === selected,
+      o => optionKey(o.component, o.endpoint, o.releaseLine) === selected,
     );
     if (!option) return;
     setSaving(true);
@@ -94,6 +110,7 @@ export const AddEndpointBackendDialog = ({
       await client.addEndpointBackend(entity, {
         component: option.component,
         workloadEndpoint: option.endpoint,
+        ...(option.releaseLine && { releaseLine: option.releaseLine }),
         weight,
       });
       onAdded();
@@ -159,10 +176,10 @@ export const AddEndpointBackendDialog = ({
     >
       {available.map(o => (
         <MenuItem
-          key={optionKey(o.component, o.endpoint)}
-          value={optionKey(o.component, o.endpoint)}
+          key={optionKey(o.component, o.endpoint, o.releaseLine)}
+          value={optionKey(o.component, o.endpoint, o.releaseLine)}
         >
-          {o.component} / {o.endpoint}
+          {optionLabel(o.component, o.endpoint, o.releaseLine)}
         </MenuItem>
       ))}
     </TextField>
@@ -192,7 +209,8 @@ export const AddEndpointBackendDialog = ({
       <DialogContent>
         <DialogContentText>
           Route part of {endpointName}'s traffic to another workload endpoint of
-          project {project}.
+          project {project}, on a component's main line or on one of its release
+          lines.
         </DialogContentText>
         <Box mb={2}>{picker}</Box>
         <TextField
