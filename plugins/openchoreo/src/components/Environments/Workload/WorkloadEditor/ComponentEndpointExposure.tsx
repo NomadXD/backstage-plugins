@@ -10,6 +10,7 @@ import {
 import { EndpointExposure, type SchemaState } from './EndpointExposure';
 import {
   currentEndpointName,
+  isDescriptorManaged,
   primaryOriginals,
 } from '../componentEndpointDrafts';
 import type { ComponentEndpointsState } from '../hooks/useComponentEndpoints';
@@ -66,7 +67,10 @@ export const ComponentEndpointExposure = ({
   const exposed =
     exposableVisibilities(endpoint).length > 0 && typeKey !== NO_ENDPOINT;
   let notice: ReactNode;
-  if (original && !exposed) {
+  const fromDescriptor = !!original && isDescriptorManaged(original);
+  if (fromDescriptor) {
+    notice = `Endpoint ${original.name} comes from workload.yaml: the next build replaces changes made here. Change workload.yaml to keep them.`;
+  } else if (original && !exposed) {
     notice = `Endpoint ${original.name} is deleted on save.`;
   } else if (!original && exposed) {
     notice = 'Moves to a new Endpoint on save.';
@@ -114,9 +118,15 @@ export const DetachedComponentEndpoints = ({
         {state.originals.map(original => (
           <Typography key={original.name} className={classes.item}>
             {original.name} ({original.typeName},{' '}
-            {original.visibility.join(', ')}) — deleted on save; its visibility
-            moves to workload endpoint{' '}
-            {currentEndpointName(original, state.renames)}
+            {original.visibility.join(', ')}) —{' '}
+            {isDescriptorManaged(original) ? (
+              'defined in workload.yaml, so it is kept'
+            ) : (
+              <>
+                deleted on save; its visibility moves to workload endpoint{' '}
+                {currentEndpointName(original, state.renames)}
+              </>
+            )}
           </Typography>
         ))}
       </Box>
@@ -137,6 +147,7 @@ export const DetachedComponentEndpoints = ({
           <Typography key={original.name} className={classes.item}>
             {original.name} ({original.typeName},{' '}
             {original.visibility.join(', ')}) —{' '}
+            {isDescriptorManaged(original) && 'defined in workload.yaml; '}
             {workloadEndpoints[name]
               ? `also exposes ${name}; this page leaves it as it is`
               : `its workload endpoint ${name} was removed, so it is deleted on save`}

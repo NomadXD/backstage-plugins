@@ -205,6 +205,45 @@ describe('planEndpointChanges', () => {
       ops(planEndpointChanges(input({ originals: [original()] }))),
     ).toEqual(['delete orders-api']);
   });
+
+  it('plans changes to an Endpoint from workload.yaml, except in the legacy form', () => {
+    const fromDescriptor = original({ managedBy: 'workload-descriptor' });
+    expect(
+      ops(
+        planEndpointChanges(
+          input({
+            endpoints: { api: { protocol: 'HTTP', visibility: ['internal'] } },
+            originals: [fromDescriptor],
+            choices: { api: { type: ROUTE, parameters: { cors: true } } },
+          }),
+        ),
+      ),
+    ).toEqual(['update orders-api']);
+    expect(
+      planEndpointChanges(
+        input({
+          mode: 'legacy',
+          originals: [fromDescriptor, original({ name: 'b' })],
+        }),
+      ).map(c => (c.op === 'delete' ? c.original.name : c.op)),
+    ).toEqual(['b']);
+  });
+
+  it('marks Endpoints from workload.yaml in the save confirmation', () => {
+    const fromDescriptor = original({ managedBy: 'workload-descriptor' });
+    const list = endpointChangeList([
+      {
+        op: 'update',
+        original: fromDescriptor,
+        workloadEndpoint: 'api',
+        visibility: ['internal'],
+        parameters: {},
+      },
+    ]);
+    expect(list[0].path).toBe(
+      'orders-api (from workload.yaml, replaced by the next build).visibility',
+    );
+  });
 });
 
 describe('endpointChangeList', () => {
