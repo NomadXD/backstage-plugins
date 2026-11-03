@@ -91,6 +91,13 @@ export const CHOREO_ANNOTATIONS = {
   BACKSTAGE_OWNER: 'backstage.io/owner',
 } as const;
 
+/**
+ * The openchoreo.dev/managed-by value of an Endpoint created from a
+ * component's workload descriptor (workload.yaml). Each build applies the
+ * descriptor again, so the portal never changes these Endpoints.
+ */
+export const ENDPOINT_MANAGED_BY_DESCRIPTOR = 'workload-descriptor';
+
 export const CHOREO_LABELS = {
   MANAGED: 'openchoreo.io/managed',
   SYSTEM: 'openchoreo.io/system',
@@ -108,6 +115,10 @@ export const CHOREO_LABELS = {
   // The release line of the source component an Endpoint was created for.
   // Absent on Endpoints created for the component's main line.
   ENDPOINT_SOURCE_RELEASE_LINE: 'openchoreo.dev/source-release-line',
+  // What manages an Endpoint's lifecycle. `workload-descriptor` marks one
+  // created from the component's workload descriptor on each build, which
+  // the portal shows read-only (see {@link ENDPOINT_MANAGED_BY_DESCRIPTOR}).
+  ENDPOINT_MANAGED_BY: 'openchoreo.dev/managed-by',
   // Set on catalog Endpoint entities: whether the Endpoint is managed by a
   // component or owned by its project. See {@link ENDPOINT_SCOPE}.
   ENDPOINT_SCOPE: 'openchoreo.io/endpoint-scope',

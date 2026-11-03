@@ -23,6 +23,7 @@ import {
   ComponentEndpointExposure,
   DetachedComponentEndpoints,
 } from './ComponentEndpointExposure';
+import { isDescriptorManaged } from '../componentEndpointDrafts';
 
 const NO_KEYS: string[] = [];
 
@@ -184,6 +185,9 @@ export const EndpointContent: FC<EndpointContentProps> = ({
     entity.metadata.annotations?.[CHOREO_ANNOTATIONS.NAMESPACE] ?? '',
   );
 
+  const fromDescriptor =
+    componentEndpoints?.originals.some(isDescriptorManaged) ?? false;
+
   // In the Endpoints form, visibility beyond project needs an Endpoint, so
   // a protocol no allowed type serves stays project-scoped.
   const visibilityDisabledReason = useCallback(
@@ -221,6 +225,17 @@ export const EndpointContent: FC<EndpointContentProps> = ({
             </Alert>
           </Box>
         )}
+      {fromDescriptor && (
+        <Box mb={2}>
+          <Alert severity="warning">
+            Some endpoints are exposed by this component&apos;s workload
+            descriptor (workload.yaml), and every build applies it again. Edits
+            here to those Endpoints, and to the endpoints themselves such as a
+            port, last only until the next build: to keep a change, make it in
+            workload.yaml. Endpoints you add here for other endpoints are kept.
+          </Alert>
+        </Box>
+      )}
       <Box mb={2}>
         <FormBanner state={componentEndpoints} disabled={disabled} />
       </Box>

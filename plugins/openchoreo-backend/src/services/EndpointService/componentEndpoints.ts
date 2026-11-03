@@ -125,5 +125,8 @@ export function toComponentEndpointSummary(
     ...(endpoint.status?.latestRelease?.name && {
       latestRelease: endpoint.status.latestRelease.name,
     }),
+    ...(endpoint.metadata.labels?.[CHOREO_LABELS.ENDPOINT_MANAGED_BY] && {
+      managedBy: endpoint.metadata.labels[CHOREO_LABELS.ENDPOINT_MANAGED_BY],
+    }),
   };
 }

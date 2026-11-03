@@ -1,4 +1,5 @@
 import {
+  ENDPOINT_MANAGED_BY_DESCRIPTOR,
   NO_ENDPOINT,
   endpointTypeKey,
   exposableVisibilities,
@@ -92,6 +93,18 @@ function sameSet(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every(v => b.includes(v));
 }
 
+/**
+ * Whether an Endpoint comes from the component's workload descriptor. Each
+ * build applies the descriptor again, so the page edits such an Endpoint like
+ * any other but warns that the next build replaces the edit. Switching to the
+ * legacy form leaves it alone, since the next build would only recreate it.
+ */
+export function isDescriptorManaged(
+  original: ComponentEndpointSummary,
+): boolean {
+  return original.managedBy === ENDPOINT_MANAGED_BY_DESCRIPTOR;
+}
+
 /** The workload endpoint an original Endpoint belongs to after renames. */
 export function currentEndpointName(
   original: ComponentEndpointSummary,
@@ -146,11 +159,13 @@ export function planEndpointChanges(
   input: EndpointPlanInput,
 ): EndpointChange[] {
   if (input.mode === 'legacy') {
-    return input.originals.map(original => ({
-      op: 'delete',
-      original,
-      reason: 'legacyForm',
-    }));
+    return input.originals
+      .filter(original => !isDescriptorManaged(original))
+      .map(original => ({
+        op: 'delete',
+        original,
+        reason: 'legacyForm',
+      }));
   }
   const deletes: EndpointChange[] = [];
   const updates: EndpointChange[] = [];
@@ -262,6 +277,16 @@ export function endpointFormSwitchSummary(
     : 'Switches to Endpoints: endpoints with visibility beyond project are exposed through Endpoints.';
 }
 
+/**
+ * How the save confirmation names an Endpoint: one from workload.yaml says
+ * so, since the next build replaces the change.
+ */
+function endpointLabel(original: ComponentEndpointSummary): string {
+  return isDescriptorManaged(original)
+    ? `${original.name} (from workload.yaml, replaced by the next build)`
+    : original.name;
+}
+
 /** The planned Endpoint calls, as the save confirmation lists them. */
 export function endpointChangeList(changes: EndpointChange[]): Change[] {
   const list: Change[] = [];
@@ -278,14 +303,14 @@ export function endpointChangeList(changes: EndpointChange[]): Change[] {
         break;
       case 'delete':
         list.push({
-          path: change.original.name,
+          path: endpointLabel(change.original),
           type: 'removed',
           oldValue: DELETE_REASONS[change.reason],
         });
         break;
       case 'update': {
         const { original } = change;
-        const label = original.name;
+        const label = endpointLabel(original);
         if (change.workloadEndpoint !== original.workloadEndpoint) {
           list.push({
             path: `${label}.workloadEndpoint`,

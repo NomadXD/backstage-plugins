@@ -82,6 +82,12 @@ export interface ComponentEndpointSummary {
   /** The Endpoint's Ready condition, once the controller has set it. */
   ready?: { status: string; reason?: string; message?: string };
   latestRelease?: string;
+  /**
+   * What manages the Endpoint, from its openchoreo.dev/managed-by label:
+   * `workload-descriptor` for one created from the component's workload
+   * descriptor, which the configure page shows but never changes.
+   */
+  managedBy?: string;
 }
 
 /** What an Endpoint for a component's workload endpoint is made from. */
