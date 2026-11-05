@@ -202,10 +202,21 @@ export class EtdToTemplateConverter {
             properties: {
               name: { type: 'string' },
               component: { type: 'string' },
+              releaseLine: { type: 'string' },
               endpoint: { type: 'string' },
               weight: { type: 'number' },
             },
             required: ['name', 'component', 'endpoint'],
+          },
+        },
+        strategy: {
+          title: 'How traffic moves',
+          type: 'string',
+          enum: ['weight', 'canary', 'blueGreen', 'abTest', 'mirror'],
+          default: 'weight',
+          'ui:field': 'EndpointStrategyField',
+          'ui:options': {
+            backendsField: 'backends',
           },
         },
         schema: {
@@ -264,6 +275,7 @@ export class EtdToTemplateConverter {
           typeName: et.metadata.name,
           visibility: '${{ parameters.visibility }}',
           backends: '${{ parameters.backends }}',
+          strategy: '${{ parameters.strategy }}',
           schema: '${{ parameters.schema }}',
           parameters: '${{ parameters.parameters }}',
         },
