@@ -6112,6 +6112,78 @@ export interface components {
        * @example 90
        */
       weight: number;
+      match?: components['schemas']['EndpointMatch'];
+      mirror?: components['schemas']['EndpointMirror'];
+    };
+    /**
+     * @description Conditions a request must meet to go to this backend before any weighted
+     *     split. All set conditions must hold. A backend with a match gets the
+     *     requests that meet it in addition to its weighted share.
+     */
+    EndpointMatch: {
+      path?: components['schemas']['EndpointPathMatch'];
+      /** @description Headers the request must carry. */
+      headers?: components['schemas']['EndpointHeaderMatch'][];
+      /** @description Cookies the request must carry, by exact value. */
+      cookies?: components['schemas']['EndpointCookieMatch'][];
+    };
+    /** @description A path condition, relative to where the Endpoint is served. */
+    EndpointPathMatch: {
+      /**
+       * @description How the path is compared.
+       * @default PathPrefix
+       * @enum {string}
+       */
+      type: 'PathPrefix' | 'Exact';
+      /**
+       * @description The path, relative to where the Endpoint is served.
+       * @example /next
+       */
+      value: string;
+    };
+    /** @description A header condition. */
+    EndpointHeaderMatch: {
+      /**
+       * @description Header name, case-insensitive.
+       * @example x-canary
+       */
+      name: string;
+      /**
+       * @description How the value is compared.
+       * @default Exact
+       * @enum {string}
+       */
+      type: 'Exact' | 'RegularExpression';
+      /**
+       * @description The expected value, or an RE2 regular expression.
+       * @example true
+       */
+      value: string;
+    };
+    /** @description A cookie condition, by exact value. */
+    EndpointCookieMatch: {
+      /**
+       * @description Cookie name.
+       * @example group
+       */
+      name: string;
+      /**
+       * @description Exact cookie value.
+       * @example b
+       */
+      value: string;
+    };
+    /**
+     * @description Copies a share of the requests to this backend. Its answers are discarded.
+     *     A mirror backend has weight 0 and no match.
+     */
+    EndpointMirror: {
+      /**
+       * Format: int32
+       * @description Percent of the requests to copy, from 0 to 100.
+       * @example 10
+       */
+      percent: number;
     };
     /** @description References a named workload endpoint of a Component in the Endpoint's project. */
     EndpointComponentBackend: {
@@ -6280,6 +6352,27 @@ export interface components {
       endpointTypeEnvironmentConfigs?: {
         [key: string]: unknown;
       };
+      /**
+       * @description Environment-specific weight and mirror share for the release's backends,
+       *     matched by name. Entries for a backend the pinned release does not have
+       *     are ignored and reported in the BackendOverridesApplied condition.
+       */
+      backendOverrides?: components['schemas']['EndpointBackendOverride'][];
+    };
+    /** @description Environment-specific values for one backend. */
+    EndpointBackendOverride: {
+      /**
+       * @description Name of the backend in the release.
+       * @example canary
+       */
+      name: string;
+      /**
+       * Format: int32
+       * @description Replaces the release's weight for this backend in this environment.
+       * @example 25
+       */
+      weight?: number;
+      mirror?: components['schemas']['EndpointMirror'];
     };
     /**
      * @description Per-visibility URL templates. Each entry is optional; a type declares only the visibilities it
@@ -6396,11 +6489,12 @@ export interface components {
        * @example 90
        */
       weight?: number;
+      mirror?: components['schemas']['EndpointMirror'];
       /** @description Whether the backend was found and can receive traffic in this environment. */
       resolved: boolean;
       serviceURL?: components['schemas']['EndpointURL'];
       /**
-       * @description Why the backend could not be resolved (e.g. NotDeployed, EndpointNotAvailable, UnsupportedProtocol, NamespaceMismatch).
+       * @description Why the backend could not be resolved (e.g. NotDeployed, NotReady, EndpointNotAvailable, UnsupportedProtocol, NamespaceMismatch).
        * @example NotDeployed
        */
       reason?: string;
