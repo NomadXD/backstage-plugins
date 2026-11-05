@@ -20,6 +20,7 @@ import { ResourceTypeInfoService } from './services/ResourceTypeService/Resource
 import { ClusterResourceTypeInfoService } from './services/ClusterResourceTypeService/ClusterResourceTypeInfoService';
 import { ResourceReleaseInfoService } from './services/ResourceReleaseService/ResourceReleaseInfoService';
 import { EndpointInfoService } from './services/EndpointService/EndpointInfoService';
+import { EndpointRolloutService } from './services/EndpointService/EndpointRolloutService';
 import { ProjectReleaseInfoService } from './services/ProjectReleaseService/ProjectReleaseInfoService';
 import { SecretReferencesService } from './services/SecretReferencesService/SecretReferencesService';
 import { SecretsService } from './services/SecretsService/SecretsService';
@@ -71,6 +72,7 @@ export const choreoPlugin = createBackendPlugin({
         catalog,
         permissionsRegistry,
         auth,
+        httpAuth,
         annotationStore,
         immediateCatalog,
       }) {
@@ -150,6 +152,10 @@ export const choreoPlugin = createBackendPlugin({
         );
 
         const endpointInfoService = new EndpointInfoService(logger, baseUrl);
+        const endpointRolloutService = new EndpointRolloutService(
+          logger,
+          baseUrl,
+        );
 
         const projectReleaseInfoService = new ProjectReleaseInfoService(
           logger,
@@ -248,6 +254,7 @@ export const choreoPlugin = createBackendPlugin({
             clusterResourceTypeInfoService,
             resourceReleaseInfoService,
             endpointInfoService,
+            endpointRolloutService,
             projectReleaseInfoService,
             secretReferencesInfoService,
             secretsService,
@@ -263,6 +270,7 @@ export const choreoPlugin = createBackendPlugin({
               config.getOptionalString('openchoreo.defaultOwner') || 'guests',
             catalogService: catalog,
             auth,
+            httpAuth,
             tokenService,
             authEnabled,
             wirelogsStreamTimeoutMs,
