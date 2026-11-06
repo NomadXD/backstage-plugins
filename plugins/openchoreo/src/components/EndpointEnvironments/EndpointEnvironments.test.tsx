@@ -186,9 +186,7 @@ describe('EndpointEnvironmentsList', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: 'Select setup' }),
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Deploy to Development' }),
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }));
 
     await waitFor(() =>
       expect(updateEndpointReleaseBinding).toHaveBeenCalledWith(

@@ -228,6 +228,68 @@ export {
   type ComponentEndpointSummary,
   type ReleaseLineEndpointTarget,
 } from './utils/componentEndpoint';
+export {
+  backendMatchProblems,
+  detectEndpointStrategy,
+  buildCanary,
+  buildBlueGreen,
+  buildABTest,
+  buildMirror,
+  finishStrategy,
+  isSameBackend,
+  MOBILE_USER_AGENT,
+  audienceProblem,
+} from './utils/endpointStrategies';
+export type {
+  EndpointStrategy,
+  StrategyTarget,
+  StrategyChange,
+} from './utils/endpointStrategies';
+export {
+  ROLLOUT_ANNOTATION,
+  DEFAULT_CANARY_STEPS,
+  MIRROR_STEPS,
+  rolloutStages,
+  rolloutPosition,
+  nextRolloutStage,
+  rolloutWeights,
+  stableSplit,
+  untouchedSplit,
+  completeSplit,
+  abAudience,
+  parseRollout,
+  serializeRollout,
+  currentRollout,
+  planRollout,
+  reconfigureRollout,
+  convertToCanary,
+} from './utils/endpointRollout';
+export type { RolloutStage } from './utils/endpointRollout';
+export type {
+  EndpointBackendWeight,
+  EndpointHeaderMatch,
+  EndpointNameValueMatch,
+  EndpointBackendMatch,
+  EndpointMirror,
+  RolloutStrategy,
+  RolloutPreview,
+  EndpointRollout,
+  RolloutPosition,
+  RolloutPlan,
+  EndpointWeightOverride,
+  EndpointRolloutInfo,
+  EndpointRolloutEnvironment,
+  EndpointServedBackend,
+  UpdateEndpointOverridesRequest,
+  StartRolloutRequest,
+  SetRolloutStageRequest,
+  DeployEndpointReleaseRequest,
+  ConvertRolloutRequest,
+  RolloutSettings,
+  UpdateRolloutSettingsRequest,
+  FinishRolloutRequest,
+  RolloutActionResult,
+} from './types/endpoint-rollout-types';
 
 // Feature flags types
 export type { OpenChoreoFeatures, FeatureName } from './types/features';

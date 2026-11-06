@@ -64,6 +64,10 @@ describe('EtdToTemplateConverter', () => {
     expect(routing.properties.backends['ui:field']).toBe(
       'EndpointBackendsField',
     );
+    expect(routing.properties.strategy).toMatchObject({
+      default: 'weight',
+      'ui:field': 'EndpointStrategyField',
+    });
     expect(routing.properties.schema['ui:field']).toBe('EndpointSchemaField');
     expect(details.properties.parameters['ui:options'].rtdSchema).toEqual(
       httpRoute.spec.parameters.openAPIV3Schema,
@@ -80,6 +84,7 @@ describe('EtdToTemplateConverter', () => {
       typeName: 'http-route',
       endpointName: '${{ parameters.endpoint_name }}',
       backends: '${{ parameters.backends }}',
+      strategy: '${{ parameters.strategy }}',
       schema: '${{ parameters.schema }}',
     });
   });

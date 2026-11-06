@@ -100,6 +100,16 @@ function createMockServices() {
       fetchClusterEndpointTypeSchema: jest.fn(),
       fetchReleaseLineEndpointDrafts: jest.fn(),
     },
+    endpointRolloutService: {
+      fetchEndpointRollout: jest.fn(),
+      updateEndpointOverrides: jest.fn(),
+      startRollout: jest.fn(),
+      setRolloutStage: jest.fn(),
+      convertRollout: jest.fn(),
+      updateRolloutSettings: jest.fn(),
+      deployRelease: jest.fn(),
+      finishRollout: jest.fn(),
+    },
     projectReleaseInfoService: {
       fetchProjectRelease: jest.fn(),
       fetchProjectReleaseSchema: jest.fn(),
@@ -399,6 +409,49 @@ describe('createRouter', () => {
       expect(response.body).toMatchObject({
         error: expect.objectContaining({ message }),
       });
+    });
+  });
+
+  describe('PUT /endpoint-rollout/start', () => {
+    it('records who started the rollout', async () => {
+      const local = createMockServices();
+      local.tokenService.getUserToken.mockReturnValue('user-token');
+      (
+        local.endpointRolloutService.startRollout as jest.Mock
+      ).mockResolvedValue({ environments: [] });
+      const localApp = express();
+      localApp.use(express.json());
+      localApp.use(
+        await createRouter({
+          ...local,
+          httpAuth: {
+            credentials: jest.fn().mockResolvedValue({
+              principal: { userEntityRef: 'user:default/banuka' },
+            }),
+          },
+        } as any),
+      );
+      localApp.use(mockErrorHandler());
+
+      const body = {
+        endpointName: 'trips-api',
+        namespaceName: 'default',
+        projectName: 'default',
+        plan: {
+          strategy: 'canary',
+          candidate: { componentName: 'trips-python', endpoint: 'http' },
+        },
+      };
+      const response = await request(localApp)
+        .put('/endpoint-rollout/start')
+        .send(body);
+
+      expect(response.status).toBe(200);
+      expect(local.endpointRolloutService.startRollout).toHaveBeenCalledWith(
+        body,
+        expect.anything(),
+        'user:default/banuka',
+      );
     });
   });
 
